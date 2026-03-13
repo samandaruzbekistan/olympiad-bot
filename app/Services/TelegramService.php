@@ -22,6 +22,17 @@ class TelegramService
         }
     }
 
+    public function sendLocation(string|int $chatId, float $latitude, float $longitude): Response
+    {
+        $payload = [
+            'chat_id' => $chatId,
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+        ];
+
+        return $this->post('sendLocation', $payload);
+    }
+
     public function sendMessage(string|int $chatId, string $text, ?array $keyboard = null): Response
     {
         $payload = [

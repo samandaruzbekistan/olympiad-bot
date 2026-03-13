@@ -24,6 +24,8 @@ return new class extends Migration
             $table->dateTime('start_date');
             $table->string('location_name');
             $table->string('location_address')->nullable();
+            $table->decimal('latitude', 10, 7)->nullable();
+            $table->decimal('longitude', 10, 7)->nullable();
             $table->string('logo')->nullable();
             $table->unsignedInteger('capacity')->nullable();
             $table->string('status')->default('draft');
