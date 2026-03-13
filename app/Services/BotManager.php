@@ -6,6 +6,8 @@ class BotManager
 {
     public function __construct(
         protected TelegramService $telegram,
+        protected StartHandler $startHandler,
+        protected RegistrationHandler $registrationHandler,
     ) {
     }
 
@@ -54,6 +56,17 @@ class BotManager
     public function handleCallback(array $callback): void
     {
         $callbackId = $callback['id'] ?? null;
+        $data = $callback['data'] ?? null;
+
+        if ($data === 'register_start') {
+            $this->registrationHandler->handleCallback($callback);
+
+            if ($callbackId !== null) {
+                $this->telegram->answerCallback($callbackId);
+            }
+
+            return;
+        }
 
         if ($callbackId === null) {
             return;
@@ -84,8 +97,7 @@ class BotManager
      */
     protected function handlePlainMessage(int|string $chatId, string $text, array $message): void
     {
-        // Default implementation – customise as needed.
-        $this->telegram->sendMessage($chatId, 'Received your message.');
+        $this->registrationHandler->handleMessage($message);
     }
 
     /**
@@ -93,7 +105,7 @@ class BotManager
      */
     protected function handleStartCommand(int|string $chatId, array $message): void
     {
-        $this->telegram->sendMessage($chatId, 'Welcome! Bot is ready.');
+        $this->startHandler->handle($message);
     }
 
     /**
