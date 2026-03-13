@@ -26,12 +26,15 @@ return new class extends Migration
 
             $table->string('status')->default('pending');
 
+            $table->string('payment_status')->default('pending');
+
             $table->string('ticket_number')->unique()->nullable();
 
             $table->timestamps();
 
             $table->index(['user_id', 'olympiad_id']);
             $table->index('status');
+            $table->index('payment_status');
         });
     }
 

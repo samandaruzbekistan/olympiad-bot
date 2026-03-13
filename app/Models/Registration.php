@@ -14,6 +14,7 @@ class Registration extends Model
         'user_id',
         'olympiad_id',
         'status',
+        'payment_status',
         'ticket_number',
     ];
 
