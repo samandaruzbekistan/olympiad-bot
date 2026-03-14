@@ -40,9 +40,11 @@ class OlympiadController extends Controller
             'start_date' => 'required|date',
             'location_name' => 'required|string|max:255',
             'location_address' => 'nullable|string|max:255',
+            'latitude' => 'nullable|numeric|between:-90,90',
+            'longitude' => 'nullable|numeric|between:-180,180',
             'status' => 'required|in:draft,active,closed',
         ]);
         Olympiad::create($validated);
-        return redirect()->route('admin.olympiads.index')->with('success', 'Olympiad created.');
+        return redirect()->route('admin.olympiads.index')->with('success', 'Olimpiada yaratildi.');
     }
 }

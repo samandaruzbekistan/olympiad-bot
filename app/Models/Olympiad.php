@@ -19,6 +19,8 @@ class Olympiad extends Model
         'start_date',
         'location_name',
         'location_address',
+        'latitude',
+        'longitude',
         'logo',
         'capacity',
         'status',

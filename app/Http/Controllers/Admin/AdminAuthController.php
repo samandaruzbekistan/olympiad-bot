@@ -21,9 +21,9 @@ class AdminAuthController extends Controller
             'email' => 'required|email',
             'password' => 'required',
         ], [
-            'email.required' => 'Please enter your email address.',
-            'email.email' => 'Please enter a valid email address.',
-            'password.required' => 'Please enter your password.',
+            'email.required' => 'Email manzilini kiriting.',
+            'email.email' => 'To‘g‘ri email kiriting.',
+            'password.required' => 'Parolni kiriting.',
         ]);
 
         if (Auth::guard('admin')->attempt($validated)) {
@@ -33,7 +33,7 @@ class AdminAuthController extends Controller
 
         return back()
             ->withInput($request->only('email'))
-            ->withErrors(['email' => __('These credentials do not match our records.')]);
+            ->withErrors(['email' => 'Email yoki parol noto‘g‘ri.']);
     }
 
     public function logout(Request $request): RedirectResponse

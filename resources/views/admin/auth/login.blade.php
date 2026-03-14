@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<html lang="uz">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>Admin Login – {{ config('app.name') }}</title>
+    <title>Admin paneliga kirish – {{ config('app.name') }}</title>
     <link rel="preconnect" href="https://fonts.bunny.net">
-    <link href="https://fonts.bunny.net/css?family=inter:400,500,600" rel="stylesheet" />
+    <link href="https://fonts.bunny.net/css?family=inter:400,500,600,700" rel="stylesheet" />
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="min-h-screen bg-slate-50 font-sans text-slate-900 antialiased flex items-center justify-center px-4">
@@ -19,11 +19,11 @@
                     </svg>
                 </div>
             </div>
-            <h1 class="text-center text-xl font-semibold text-slate-800">Admin sign in</h1>
-            <p class="mt-1 text-center text-sm text-slate-500">Olympiad management</p>
+            <h1 class="text-center text-xl font-semibold text-slate-800">Admin paneliga kirish</h1>
+            <p class="mt-1 text-center text-sm text-slate-500">Olimpiada boshqaruvi</p>
 
             @if ($errors->any())
-                <div class="mt-6 rounded-lg border border-red-200 bg-red-50 p-4">
+                <div class="mt-6 rounded-xl border border-red-200 bg-red-50 p-4">
                     <ul class="list-inside list-disc space-y-1 text-sm text-red-700">
                         @foreach ($errors->all() as $error)
                             <li>{{ $error }}</li>
@@ -37,22 +37,24 @@
                 <div>
                     <label for="email" class="block text-base font-medium text-slate-700">Email</label>
                     <input type="email" name="email" id="email" value="{{ old('email') }}" required autofocus autocomplete="email"
-                           class="mt-2 block w-full rounded-lg border-slate-300 py-3.5 px-4 text-base shadow-sm focus:border-indigo-500 focus:ring-indigo-500 @error('email') border-red-500 @enderror"
+                           class="admin-input mt-2 @error('email') border-red-400 @enderror"
                            placeholder="you@example.com">
+                    @error('email')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
                 </div>
                 <div>
-                    <label for="password" class="block text-base font-medium text-slate-700">Password</label>
+                    <label for="password" class="block text-base font-medium text-slate-700">Parol</label>
                     <input type="password" name="password" id="password" required autocomplete="current-password"
-                           class="mt-2 block w-full rounded-lg border-slate-300 py-3.5 px-4 text-base shadow-sm focus:border-indigo-500 focus:ring-indigo-500 @error('password') border-red-500 @enderror"
+                           class="admin-input mt-2 @error('password') border-red-400 @enderror"
                            placeholder="••••••••">
+                    @error('password')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
                 </div>
                 <button type="submit"
-                        class="w-full rounded-lg bg-indigo-600 px-4 py-3.5 text-base font-medium text-white shadow-sm hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
-                    Sign in
+                        class="w-full rounded-xl bg-indigo-600 px-4 py-3.5 text-base font-medium text-white shadow-sm transition hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
+                    Kirish
                 </button>
             </form>
         </div>
-        <p class="mt-6 text-center text-sm text-slate-500">Olympiad Admin Panel</p>
+        <p class="mt-6 text-center text-sm text-slate-500">Olimpiada admin paneli</p>
     </div>
 </body>
 </html>

@@ -32,6 +32,6 @@ class SubjectController extends Controller
     {
         $validated = $request->validate(['name' => 'required|string|max:255']);
         Subject::create($validated);
-        return redirect()->route('admin.subjects.index')->with('success', 'Subject created.');
+        return redirect()->route('admin.subjects.index')->with('success', 'Fan yaratildi.');
     }
 }
