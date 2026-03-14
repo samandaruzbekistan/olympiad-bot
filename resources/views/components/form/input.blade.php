@@ -8,7 +8,7 @@
 @php
     $id = $name ?: 'input-' . uniqid();
     $hasError = $name && $errors->has($name);
-    $baseClass = 'block w-full rounded-lg border-gray-300 py-2.5 px-4 text-base shadow-sm focus:border-blue-500 focus:ring-blue-500';
+    $baseClass = 'block w-full rounded-lg border-gray-300 py-3.5 px-4 text-base shadow-sm focus:border-blue-500 focus:ring-blue-500';
     $inputClass = ($label ? 'mt-2 ' : '') . $baseClass . ($hasError ? ' border-red-500' : '');
 @endphp
 

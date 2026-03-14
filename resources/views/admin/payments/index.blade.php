@@ -10,7 +10,7 @@
             <label for="search" class="sr-only">Search</label>
             <input type="search" name="search" id="search" value="{{ request('search') }}"
                    placeholder="Search by transaction ID…"
-                   class="block w-full max-w-sm rounded-lg border-slate-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                   class="block w-full max-w-sm rounded-lg border-slate-300 py-3.5 px-4 text-base shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
         </form>
     </div>
     <div class="overflow-x-auto">
