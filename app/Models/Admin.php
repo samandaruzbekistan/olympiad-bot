@@ -2,14 +2,12 @@
 
 namespace App\Models;
 
-use Filament\Models\Contracts\FilamentUser;
-use Filament\Panel;
 use Illuminate\Foundation\Auth\User as Authenticatable;
-use Illuminate\Notifications\Notifiable;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 
-class Admin extends Authenticatable implements FilamentUser
+class Admin extends Authenticatable
 {
-    use Notifiable;
+    use HasFactory;
 
     protected $fillable = [
         'name',
@@ -18,11 +16,13 @@ class Admin extends Authenticatable implements FilamentUser
     ];
 
     protected $hidden = [
-        'password'
+        'password',
     ];
 
-    public function canAccessPanel(Panel $panel): bool
+    protected function casts(): array
     {
-        return true;
+        return [
+            'password' => 'hashed',
+        ];
     }
 }
