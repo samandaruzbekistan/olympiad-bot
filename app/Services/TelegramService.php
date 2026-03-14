@@ -77,6 +77,26 @@ class TelegramService
         return $this->post('sendPhoto', $payload);
     }
 
+    public function editMessageText(
+        string|int $chatId,
+        int $messageId,
+        string $text,
+        ?array $inlineKeyboard = null,
+    ): Response {
+        $payload = [
+            'chat_id' => $chatId,
+            'message_id' => $messageId,
+            'text' => $text,
+            'parse_mode' => 'HTML',
+        ];
+
+        if ($inlineKeyboard !== null) {
+            $payload['reply_markup'] = ['inline_keyboard' => $inlineKeyboard];
+        }
+
+        return $this->post('editMessageText', $payload);
+    }
+
     public function answerCallback(string $callbackId, ?string $text = null): Response
     {
         $payload = [

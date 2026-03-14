@@ -13,7 +13,7 @@ class OlympiadController extends Controller
 {
     public function index(Request $request): View
     {
-        $query = Olympiad::query()->withCount('registrations')->with('subject');
+        $query = Olympiad::query()->withCount('registrations')->with('subjects');
 
         if ($search = $request->query('search')) {
             $query->where('title', 'like', "%{$search}%");
@@ -35,7 +35,8 @@ class OlympiadController extends Controller
         $validated = $request->validate([
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
-            'subject_id' => 'nullable|exists:subjects,id',
+            'subject_ids' => 'nullable|array',
+            'subject_ids.*' => 'exists:subjects,id',
             'price' => 'required|integer|min:0',
             'start_date' => 'required|date',
             'location_name' => 'required|string|max:255',
@@ -44,7 +45,10 @@ class OlympiadController extends Controller
             'longitude' => 'nullable|numeric|between:-180,180',
             'status' => 'required|in:draft,active,closed',
         ]);
-        Olympiad::create($validated);
+        $subjectIds = $validated['subject_ids'] ?? [];
+        unset($validated['subject_ids']);
+        $olympiad = Olympiad::create($validated);
+        $olympiad->subjects()->sync($subjectIds);
         return redirect()->route('admin.olympiads.index')->with('success', 'Olimpiada yaratildi.');
     }
 }

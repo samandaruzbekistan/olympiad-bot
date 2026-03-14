@@ -38,7 +38,7 @@
                 @forelse($olympiads as $olympiad)
                     <tr class="hover:bg-slate-50">
                         <td class="whitespace-nowrap px-4 py-4 text-sm font-medium text-slate-900 sm:px-6">{{ $olympiad->title }}</td>
-                        <td class="whitespace-nowrap px-4 py-4 text-sm text-slate-600 sm:px-6">{{ $olympiad->subject?->name ?? '—' }}</td>
+                        <td class="px-4 py-4 text-sm text-slate-600 sm:px-6">{{ $olympiad->subjects->pluck('name')->join(', ') ?: '—' }}</td>
                         <td class="whitespace-nowrap px-4 py-4 text-sm text-slate-600 sm:px-6">{{ number_format($olympiad->price) }}</td>
                         <td class="whitespace-nowrap px-4 py-4 text-sm text-slate-600 sm:px-6">{{ $olympiad->start_date?->format('d.m.Y H:i') ?? '—' }}</td>
                         <td class="whitespace-nowrap px-4 py-4 sm:px-6">

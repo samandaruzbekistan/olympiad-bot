@@ -3,7 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Model;
 
@@ -14,7 +14,6 @@ class Olympiad extends Model
     protected $fillable = [
         'title',
         'description',
-        'subject_id',
         'price',
         'start_date',
         'location_name',
@@ -30,9 +29,9 @@ class Olympiad extends Model
         'start_date' => 'datetime',
     ];
 
-    public function subject(): BelongsTo
+    public function subjects(): BelongsToMany
     {
-        return $this->belongsTo(Subject::class);
+        return $this->belongsToMany(Subject::class, 'olympiad_subject')->withTimestamps();
     }
 
     public function registrations(): HasMany

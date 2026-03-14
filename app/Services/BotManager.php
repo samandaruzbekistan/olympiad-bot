@@ -47,7 +47,10 @@ class BotManager
             return;
         }
 
-        $this->handlePlainMessage($chatId, $text, $message);
+        // Matn yoki kontakt (telefon tugmasi) — registration handler ga yuboramiz
+        if (isset($message['contact']) || $text !== '') {
+            $this->handlePlainMessage($chatId, $text, $message);
+        }
     }
 
     /**
@@ -68,11 +71,17 @@ class BotManager
             return;
         }
 
+        if (is_string($data) && (str_starts_with($data, 'region_') || str_starts_with($data, 'district_'))) {
+            if ($this->registrationHandler->handleRegionDistrictCallback($callback) && $callbackId !== null) {
+                $this->telegram->answerCallback($callbackId);
+            }
+            return;
+        }
+
         if ($callbackId === null) {
             return;
         }
 
-        // Example: acknowledge callback; extend to route based on data.
         $this->telegram->answerCallback($callbackId);
     }
 

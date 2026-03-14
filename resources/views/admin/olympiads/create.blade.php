@@ -23,14 +23,19 @@
             @error('description')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
         </div>
         <div>
-            <label for="subject_id" class="block text-base font-medium text-slate-700">Fan</label>
-            <select name="subject_id" id="subject_id" class="admin-input mt-2">
-                <option value="">— Tanlanmagan —</option>
+            <span class="block text-base font-medium text-slate-700 mb-2">Fanlar</span>
+            <p class="text-sm text-slate-500 mb-2">Bir yoki bir nechta fanni tanlang.</p>
+            <div class="mt-2 space-y-2 rounded-xl border border-slate-200 bg-white p-4">
                 @foreach($subjects as $subject)
-                    <option value="{{ $subject->id }}" {{ old('subject_id') == $subject->id ? 'selected' : '' }}>{{ $subject->name }}</option>
+                    <label class="flex cursor-pointer items-center gap-3 rounded-lg py-2 hover:bg-slate-50">
+                        <input type="checkbox" name="subject_ids[]" value="{{ $subject->id }}"
+                               {{ in_array($subject->id, old('subject_ids', [])) ? 'checked' : '' }}
+                               class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+                        <span class="text-base text-slate-700">{{ $subject->name }}</span>
+                    </label>
                 @endforeach
-            </select>
-            @error('subject_id')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
+            </div>
+            @error('subject_ids')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
         </div>
         <div class="grid gap-6 sm:grid-cols-2">
             <div>
