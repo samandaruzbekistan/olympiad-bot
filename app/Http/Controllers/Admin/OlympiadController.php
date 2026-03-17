@@ -35,6 +35,7 @@ class OlympiadController extends Controller
         $validated = $request->validate([
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
+            'logo' => 'nullable|image|max:2048',
             'subject_ids' => 'nullable|array',
             'subject_ids.*' => 'exists:subjects,id',
             'price' => 'required|integer|min:0',
@@ -47,6 +48,11 @@ class OlympiadController extends Controller
         ]);
         $subjectIds = $validated['subject_ids'] ?? [];
         unset($validated['subject_ids']);
+
+        if ($request->hasFile('logo')) {
+            $validated['logo'] = $request->file('logo')->store('olympiads', 'public');
+        }
+
         $olympiad = Olympiad::create($validated);
         $olympiad->subjects()->sync($subjectIds);
         return redirect()->route('admin.olympiads.index')->with('success', 'Olimpiada yaratildi.');

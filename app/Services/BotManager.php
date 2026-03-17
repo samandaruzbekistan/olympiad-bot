@@ -8,6 +8,7 @@ class BotManager
         protected TelegramService $telegram,
         protected StartHandler $startHandler,
         protected RegistrationHandler $registrationHandler,
+        protected OlympiadHandler $olympiadHandler,
     ) {
     }
 
@@ -85,6 +86,41 @@ class BotManager
             return;
         }
 
+        if (is_string($data) && str_starts_with($data, 'olympiad_')) {
+            $this->olympiadHandler->showOlympiadDetails($callback);
+            if ($callbackId !== null) {
+                $this->telegram->answerCallback($callbackId);
+            }
+            return;
+        }
+
+        if (is_string($data) && str_starts_with($data, 'participate_')) {
+            $this->olympiadHandler->handleParticipation($callback);
+            if ($callbackId !== null) {
+                $this->telegram->answerCallback($callbackId);
+            }
+            return;
+        }
+
+        if (is_string($data) && (str_starts_with($data, 'payment_click_') || str_starts_with($data, 'payment_payme_'))) {
+            $this->olympiadHandler->handlePaymentCallback($callback);
+            if ($callbackId !== null) {
+                $this->telegram->answerCallback($callbackId);
+            }
+            return;
+        }
+
+        if ($data === 'main_menu') {
+            $chatId = $callback['message']['chat']['id'] ?? null;
+            if ($chatId !== null) {
+                $this->registrationHandler->showMainMenu($chatId);
+            }
+            if ($callbackId !== null) {
+                $this->telegram->answerCallback($callbackId);
+            }
+            return;
+        }
+
         if (is_string($data) && str_starts_with($data, 'menu_')) {
             $this->handleMenuCallback($callback);
             if ($callbackId !== null) {
@@ -154,19 +190,27 @@ class BotManager
 
         if ($user !== null && $text !== '') {
             if ($text === '🏆 Olimpiadalar') {
-                $this->telegram->sendMessage($chatId, "Olimpiadalar bo'limi. Tez orada bu yerda ro'yxat ko'rinadi.");
+                $this->olympiadHandler->showOlympiads($chatId, $telegramId);
+                return;
+            }
+            if ($text === '📊 Natijlarim') {
+                $this->telegram->sendMessage($chatId, "📊 Natijlarim. Tez orada bu yerda natijalar ro'yxati ko'rinadi.");
+                return;
+            }
+            if ($text === '💳 To\'lovlar') {
+                $this->telegram->sendMessage($chatId, "💳 To'lovlar. Tez orada bu yerda to'lovlar ro'yxati ko'rinadi.");
+                return;
+            }
+            if ($text === '🎫 Biletlar') {
+                $this->telegram->sendMessage($chatId, "🎫 Biletlar. Tez orada bu yerda chiptalar ro'yxati ko'rinadi.");
                 return;
             }
             if ($text === '👤 Profil') {
                 $this->sendProfileContent($chatId, $telegramId);
                 return;
             }
-            if ($text === '💳 To\'lovlarim') {
-                $this->telegram->sendMessage($chatId, "To'lovlarim. Tez orada bu yerda to'lovlar ro'yxati ko'rinadi.");
-                return;
-            }
-            if ($text === '🎫 Biletlarim') {
-                $this->telegram->sendMessage($chatId, "Biletlarim. Tez orada bu yerda chiptalar ro'yxati ko'rinadi.");
+            if ($text === 'ℹ️ Tashkilot haqida') {
+                $this->telegram->sendMessage($chatId, "ℹ️ Tashkilot haqida ma'lumot. Tez orada bu yerda batafsil ma'lumot bo'ladi.");
                 return;
             }
         }

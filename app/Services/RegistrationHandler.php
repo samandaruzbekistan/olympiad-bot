@@ -152,18 +152,33 @@ class RegistrationHandler
 
         if ($data === 'subjects_confirm') {
             $selected = $this->normalizeSubjectIds($sessionData['subject_ids'] ?? []);
+            // Faqat musbat va mavjud fan IDlarini qoldiramiz (FK xatosini oldini olish uchun)
+            $selected = array_values(array_filter($selected, fn (int $id) => $id > 0));
+            if ($selected !== []) {
+                $selected = Subject::whereIn('id', $selected)->pluck('id')->all();
+            }
+
             $allData = $this->sessions->getData($telegramId);
-            $user = User::create([
-                'telegram_id' => $telegramId,
-                'phone' => $allData['phone'] ?? '',
-                'first_name' => $allData['first_name'] ?? '',
-                'last_name' => $allData['last_name'] ?? '',
-                'region_id' => $allData['region_id'] ?? null,
-                'district_id' => $allData['district_id'] ?? null,
-                'school' => $allData['school'] ?? null,
-                'grade' => $allData['grade'] ?? null,
-            ]);
-            $user->subjects()->sync($selected);
+
+            // Agar foydalanuvchi allaqachon mavjud bo'lsa ham, ma'lumotlarini yangilab qo'yamiz
+            $user = User::updateOrCreate(
+                ['telegram_id' => $telegramId],
+                [
+                    'phone' => $allData['phone'] ?? '',
+                    'first_name' => $allData['first_name'] ?? '',
+                    'last_name' => $allData['last_name'] ?? '',
+                    'region_id' => $allData['region_id'] ?? null,
+                    'district_id' => $allData['district_id'] ?? null,
+                    'school' => $allData['school'] ?? null,
+                    'grade' => $allData['grade'] ?? null,
+                ]
+            );
+
+            if ($selected === []) {
+                $user->subjects()->detach();
+            } else {
+                $user->subjects()->sync($selected);
+            }
             $this->sessions->clear($telegramId);
 
             $this->safeEditMessageText($chatId, $messageId, "✅ Ro'yxatdan o'ttingiz! Asosiy menyu:", []);
@@ -241,10 +256,18 @@ class RegistrationHandler
     {
         $keyboard = [
             'keyboard' => [
-                [['text' => '🏆 Olimpiadalar']],
-                [['text' => '👤 Profil']],
-                [['text' => '💳 To\'lovlarim']],
-                [['text' => '🎫 Biletlarim']],
+                [
+                    ['text' => '🏆 Olimpiadalar'],
+                    ['text' => '📊 Natijlarim'],
+                ],
+                [
+                    ['text' => '💳 To\'lovlar'],
+                    ['text' => '🎫 Biletlar'],
+                ],
+                [
+                    ['text' => '👤 Profil'],
+                    ['text' => 'ℹ️ Tashkilot haqida'],
+                ],
             ],
             'resize_keyboard' => true,
         ];

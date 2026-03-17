@@ -26,6 +26,29 @@ class PaymePaymentService
     ) {
     }
 
+    /**
+     * Generate a user-facing Payme payment link for the given registration.
+     *
+     * This is used by the Telegram bot to redirect the user to Payme's
+     * payment page, while the actual JSON-RPC callbacks are still handled
+     * by the methods below.
+     */
+    public function generatePaymentLink(Registration $registration): string
+    {
+        $baseUrl = (string) config('payme.checkout_url', '');
+        $merchantId = (string) config('payme.merchant_id', '');
+
+        $amount = $this->expectedAmount($registration); // in so'm
+
+        $params = [
+            'merchant' => $merchantId,
+            'amount' => $amount,
+            'account[registration_id]' => $registration->id,
+        ];
+
+        return rtrim($baseUrl, '?') . '?' . http_build_query($params);
+    }
+
     public function checkPerformTransaction(array $params): array
     {
         $registration = $this->findRegistrationFromAccount($params['account'] ?? []);

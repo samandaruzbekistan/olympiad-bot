@@ -9,7 +9,7 @@
 
 @section('content')
 <div class="mx-auto max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-    <form action="{{ route('admin.olympiads.store') }}" method="POST" class="space-y-6" id="olympiad-form">
+    <form action="{{ route('admin.olympiads.store') }}" method="POST" class="space-y-6" id="olympiad-form" enctype="multipart/form-data">
         @csrf
         <div>
             <label for="title" class="block text-base font-medium text-slate-700">Sarlavha</label>
@@ -21,6 +21,12 @@
             <label for="description" class="block text-base font-medium text-slate-700">Tavsif</label>
             <textarea name="description" id="description" rows="3" class="admin-input mt-2 block w-full resize-y rounded-xl border border-slate-200 py-3.5 px-4 text-base shadow-sm transition focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">{{ old('description') }}</textarea>
             @error('description')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
+        </div>
+        <div>
+            <label for="logo" class="block text-base font-medium text-slate-700">Logotip (ixtiyoriy)</label>
+            <input type="file" name="logo" id="logo" accept="image/*"
+                   class="mt-2 block w-full text-sm text-slate-700 file:mr-4 file:rounded-lg file:border-0 file:bg-indigo-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-100">
+            @error('logo')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
         </div>
         <div>
             <span class="block text-base font-medium text-slate-700 mb-2">Fanlar</span>
