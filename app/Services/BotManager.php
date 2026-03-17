@@ -112,7 +112,12 @@ class BotManager
 
         if ($data === 'main_menu') {
             $chatId = $callback['message']['chat']['id'] ?? null;
-            if ($chatId !== null) {
+            $messageId = $callback['message']['message_id'] ?? null;
+            if ($chatId !== null && $messageId !== null) {
+                // Hozirgi inline xabarni o'chirib, bosh menyuni qayta ko'rsatamiz
+                $this->telegram->deleteMessage($chatId, $messageId);
+                $this->registrationHandler->showMainMenu($chatId);
+            } elseif ($chatId !== null) {
                 $this->registrationHandler->showMainMenu($chatId);
             }
             if ($callbackId !== null) {

@@ -113,9 +113,10 @@ class OlympiadHandler
     {
         $data = $callback['data'] ?? null;
         $chatId = $callback['message']['chat']['id'] ?? null;
+        $messageId = $callback['message']['message_id'] ?? null;
         $telegramId = $callback['from']['id'] ?? null;
 
-        if ($chatId === null || $telegramId === null || ! is_string($data)) {
+        if ($chatId === null || $messageId === null || $telegramId === null || ! is_string($data)) {
             return;
         }
 
@@ -146,28 +147,32 @@ class OlympiadHandler
             ],
         );
 
-        $keyboard = [
-            'inline_keyboard' => [
+        // To'lov havolalari
+        $clickUrl = $this->clickPayments->generatePaymentLink($registration);
+        $paymeUrl = $this->paymePayments->generatePaymentLink($registration);
+
+        $rows = [
+            [
                 [
-                    [
-                        'text' => 'Click',
-                        'callback_data' => 'payment_click_' . $registration->id,
-                    ],
-                    [
-                        'text' => 'Payme',
-                        'callback_data' => 'payment_payme_' . $registration->id,
-                    ],
+                    'text' => 'Click',
+                    'url' => $clickUrl,
                 ],
                 [
-                    ['text' => '⬅️ Bosh menu', 'callback_data' => 'main_menu'],
+                    'text' => 'Payme',
+                    'url' => $paymeUrl,
                 ],
+            ],
+            [
+                ['text' => '❌ Bekor qilish', 'callback_data' => 'main_menu'],
             ],
         ];
 
-        $this->telegram->sendMessage(
+        // Eski olimpiada tafsilotlari xabarini edit qilib, to'lov tanlashni ko'rsatamiz
+        $this->telegram->editMessageText(
             $chatId,
+            (int) $messageId,
             "💳 To‘lov turini tanlang:",
-            $keyboard,
+            $rows,
         );
     }
 

@@ -110,6 +110,16 @@ class TelegramService
         return $this->post('answerCallbackQuery', $payload);
     }
 
+    public function deleteMessage(string|int $chatId, int $messageId): Response
+    {
+        $payload = [
+            'chat_id' => $chatId,
+            'message_id' => $messageId,
+        ];
+
+        return $this->post('deleteMessage', $payload);
+    }
+
     public function sendInvoice(
         string|int $chatId,
         string $title,

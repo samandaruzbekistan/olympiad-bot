@@ -46,6 +46,11 @@ class PaymePaymentService
             'account[registration_id]' => $registration->id,
         ];
 
+        // Agar konfiguratsiyada to'liq URL berilmagan bo'lsa, default Payme checkout URL dan foydalanamiz.
+        if ($baseUrl === '' || ! str_starts_with($baseUrl, 'http')) {
+            $baseUrl = 'https://checkout.paycom.uz';
+        }
+
         return rtrim($baseUrl, '?') . '?' . http_build_query($params);
     }
 

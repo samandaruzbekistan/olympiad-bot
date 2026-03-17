@@ -32,13 +32,10 @@ class ClickPaymentService
 
     public function generatePaymentLink(Registration $registration): string
     {
-        $payment = $registration->payments()
-            ->where('payment_system', 'click')
-            ->latest('id')
-            ->first();
+        $olympiad = $registration->olympiad;
 
-        if ($payment === null) {
-            throw new InvalidArgumentException('Registration does not have a payment record.');
+        if ($olympiad === null) {
+            throw new InvalidArgumentException('Registration does not have an associated olympiad.');
         }
 
         $serviceId = (string) config('services.click.service_id');
@@ -48,7 +45,7 @@ class ClickPaymentService
         $query = http_build_query([
             'service_id' => $serviceId,
             'merchant_id' => $merchantId,
-            'amount' => $this->normalizeAmount($payment->amount),
+            'amount' => $this->normalizeAmount($olympiad->price),
             'transaction_param' => $registration->id,
         ]);
 
