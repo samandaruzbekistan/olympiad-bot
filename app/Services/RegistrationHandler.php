@@ -7,6 +7,7 @@ use App\Models\District;
 use App\Models\Region;
 use App\Models\Subject;
 use App\Models\User;
+use Illuminate\Http\Client\RequestException;
 
 class RegistrationHandler
 {
@@ -18,6 +19,9 @@ class RegistrationHandler
     public const STATE_WAITING_SCHOOL = 'WAITING_SCHOOL';
     public const STATE_WAITING_GRADE = 'WAITING_GRADE';
     public const STATE_WAITING_SUBJECTS = 'WAITING_SUBJECTS';
+    public const STATE_PROFILE_EDIT_FIRST_NAME = 'PROFILE_EDIT_FIRST_NAME';
+    public const STATE_PROFILE_EDIT_LAST_NAME = 'PROFILE_EDIT_LAST_NAME';
+    public const STATE_PROFILE_EDIT_SCHOOL = 'PROFILE_EDIT_SCHOOL';
 
     public function __construct(
         protected TelegramService $telegram,
@@ -86,8 +90,8 @@ class RegistrationHandler
             $this->sessions->setData($telegramId, 'district_id', $districtId);
             $this->sessions->setState($telegramId, self::STATE_WAITING_SCHOOL);
 
-            $this->telegram->editMessageText($chatId, $messageId, "✅ Viloyat va tuman tanlandi.\n\nMaktab raqami yoki nomini kiriting.", []);
-            $this->telegram->sendMessage($chatId, "Maktab raqami yoki nomini yozing:");
+            $this->telegram->editMessageText($chatId, $messageId, "✅ Viloyat va tuman tanlandi.", []);
+            $this->telegram->sendMessage($chatId, "Maktab raqami yoki nomini kiriting:");
             return true;
         }
 
@@ -121,34 +125,33 @@ class RegistrationHandler
             $this->sessions->setData($telegramId, 'subject_ids', []);
 
             $subjects = Subject::orderBy('name')->get();
-            $rows = $this->buildSubjectRows($subjects, []);
-            $text = "Qaysi fanlarda qatnashmoqchisiz? Keraklilarini tanlang, so‘ng «Tasdiqlash» ni bosing.";
-            $this->telegram->editMessageText($chatId, $messageId, $text, $rows);
+            $rows = $this->buildSubjectRows($subjects);
+            $text = $this->buildSubjectMessageText($subjects, []);
+            $this->safeEditMessageText($chatId, $messageId, $text, $rows);
             return true;
         }
 
         if (str_starts_with((string) $data, 'subject_toggle_')) {
             $subjectId = (int) substr($data, 14);
-            $selected = $sessionData['subject_ids'] ?? [];
-            $selected = is_array($selected) ? $selected : [];
-            $key = array_search($subjectId, $selected);
+            $selected = $this->normalizeSubjectIds($sessionData['subject_ids'] ?? []);
+            $key = array_search($subjectId, $selected, true);
             if ($key === false) {
                 $selected[] = $subjectId;
             } else {
                 array_splice($selected, $key, 1);
             }
             $this->sessions->setData($telegramId, 'subject_ids', $selected);
+            $selected = array_values($selected);
 
             $subjects = Subject::orderBy('name')->get();
-            $rows = $this->buildSubjectRows($subjects, $selected);
-            $text = "Qaysi fanlarda qatnashmoqchisiz? Tanlanganlar ✓ belgisi bilan. So‘ng «Tasdiqlash» ni bosing.";
-            $this->telegram->editMessageText($chatId, $messageId, $text, $rows);
+            $rows = $this->buildSubjectRows($subjects);
+            $text = $this->buildSubjectMessageText($subjects, $selected);
+            $this->safeEditMessageText($chatId, $messageId, $text, $rows);
             return true;
         }
 
         if ($data === 'subjects_confirm') {
-            $selected = $sessionData['subject_ids'] ?? [];
-            $selected = is_array($selected) ? $selected : [];
+            $selected = $this->normalizeSubjectIds($sessionData['subject_ids'] ?? []);
             $allData = $this->sessions->getData($telegramId);
             $user = User::create([
                 'telegram_id' => $telegramId,
@@ -163,7 +166,7 @@ class RegistrationHandler
             $user->subjects()->sync($selected);
             $this->sessions->clear($telegramId);
 
-            $this->telegram->editMessageText($chatId, $messageId, "✅ Ro‘yxatdan o‘ttingiz! Asosiy menyu:", []);
+            $this->safeEditMessageText($chatId, $messageId, "✅ Ro'yxatdan o'ttingiz! Asosiy menyu:", []);
             $this->showMainMenu($chatId);
             return true;
         }
@@ -171,13 +174,56 @@ class RegistrationHandler
         return false;
     }
 
-    private function buildSubjectRows($subjects, array $selectedIds): array
+    /** Telegram "message is not modified" 400 xatosida ham ish davom etadi. */
+    private function safeEditMessageText(int|string $chatId, int $messageId, string $text, array $inlineKeyboard): void
+    {
+        try {
+            $this->telegram->editMessageText($chatId, $messageId, $text, $inlineKeyboard);
+        } catch (RequestException $e) {
+            if ($e->response->status() !== 400 || strpos((string) $e->response->body(), 'message is not modified') === false) {
+                throw $e;
+            }
+        }
+    }
+
+    /** Sessiondan kelgan subject_ids ni har doim int[] qilib qaytaradi. */
+    private function normalizeSubjectIds(mixed $subjectIds): array
+    {
+        if (! is_array($subjectIds)) {
+            return [];
+        }
+        return array_values(array_map('intval', $subjectIds));
+    }
+
+    /** Xabar matni: savol + «Tanlangan fanlar» ro‘yxati. */
+    private function buildSubjectMessageText($subjects, array $selectedIds): string
+    {
+        $selectedIds = $this->normalizeSubjectIds($selectedIds);
+        $line = "Qaysi fanlarda qatnashmoqchisiz? Keraklilarini tanlang, so'ng «Tasdiqlash» ni bosing.\n\n";
+        $line .= "Tanlangan fanlar:\n";
+        if ($selectedIds === []) {
+            $line .= "— (hali tanlanmadi)";
+        } else {
+            $byId = $subjects->keyBy('id');
+            $names = [];
+            foreach ($selectedIds as $id) {
+                $s = $byId->get($id);
+                if ($s !== null) {
+                    $names[] = $s->name;
+                }
+            }
+            $line .= implode(", ", $names);
+        }
+        return $line;
+    }
+
+    /** Tugmalar — faqat fan nomi, tanlanganlik xabarda. */
+    private function buildSubjectRows($subjects): array
     {
         $rows = [];
         $row = [];
         foreach ($subjects as $s) {
-            $label = in_array($s->id, $selectedIds) ? "✓ " . $s->name : $s->name;
-            $row[] = ['text' => $label, 'callback_data' => 'subject_toggle_' . $s->id];
+            $row[] = ['text' => $s->name, 'callback_data' => 'subject_toggle_' . $s->id];
             if (count($row) >= 2) {
                 $rows[] = $row;
                 $row = [];
@@ -190,17 +236,73 @@ class RegistrationHandler
         return $rows;
     }
 
+    /** Asosiy menyu — oddiy (reply) klaviaturada, pastda doim ko‘rinadi. */
     public function showMainMenu(int|string $chatId): void
     {
         $keyboard = [
-            'inline_keyboard' => [
-                [['text' => '🏆 Olimpiadalar', 'callback_data' => 'menu_olympiads']],
-                [['text' => '👤 Profil', 'callback_data' => 'menu_profile']],
-                [['text' => '💳 To\'lovlarim', 'callback_data' => 'menu_payments']],
-                [['text' => '🎫 Biletlarim', 'callback_data' => 'menu_tickets']],
+            'keyboard' => [
+                [['text' => '🏆 Olimpiadalar']],
+                [['text' => '👤 Profil']],
+                [['text' => '💳 To\'lovlarim']],
+                [['text' => '🎫 Biletlarim']],
             ],
+            'resize_keyboard' => true,
         ];
         $this->telegram->sendMessage($chatId, "Asosiy menyu:", $keyboard);
+    }
+
+    /**
+     * Profil: bitta tugma «Hamma ma'lumotlarni yangilash» — bosilganda ketma-ket ism, familiya, maktab so‘raladi.
+     */
+    public function handleProfileEditCallback(array $callback): bool
+    {
+        $data = $callback['data'] ?? null;
+        $chatId = $callback['message']['chat']['id'] ?? null;
+        $telegramId = $callback['from']['id'] ?? null;
+        if ($data === null || $chatId === null || $telegramId === null) {
+            return false;
+        }
+        $user = User::where('telegram_id', $telegramId)->first();
+        if ($user === null) {
+            return true;
+        }
+        if ($data === 'profile_edit_all') {
+            $this->sessions->setState($telegramId, self::STATE_PROFILE_EDIT_FIRST_NAME);
+            $this->telegram->sendMessage($chatId, "Yangi ismni yozing:");
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Profil yangilash: ism → familiya → maktab ketma-ket, oxirida bitta xabar.
+     */
+    public function handleProfileEditMessage(int|string $chatId, int|string $telegramId, string $text): bool
+    {
+        $user = User::where('telegram_id', $telegramId)->first();
+        if ($user === null) {
+            return false;
+        }
+        $session = $this->sessions->getSession($telegramId);
+        if ($session->state === self::STATE_PROFILE_EDIT_FIRST_NAME) {
+            $user->update(['first_name' => $text]);
+            $this->sessions->setState($telegramId, self::STATE_PROFILE_EDIT_LAST_NAME);
+            $this->telegram->sendMessage($chatId, "Yangi familiyani yozing:");
+            return true;
+        }
+        if ($session->state === self::STATE_PROFILE_EDIT_LAST_NAME) {
+            $user->update(['last_name' => $text]);
+            $this->sessions->setState($telegramId, self::STATE_PROFILE_EDIT_SCHOOL);
+            $this->telegram->sendMessage($chatId, "Yangi maktab raqami yoki nomini yozing:");
+            return true;
+        }
+        if ($session->state === self::STATE_PROFILE_EDIT_SCHOOL) {
+            $user->update(['school' => $text]);
+            $this->sessions->setState($telegramId, BotSessionService::STATE_IDLE);
+            $this->telegram->sendMessage($chatId, "✅ Barcha ma'lumotlar yangilandi.");
+            return true;
+        }
+        return false;
     }
 
     private function buildRegionRows(): array
@@ -234,6 +336,14 @@ class RegistrationHandler
         /** @var BotSession $session */
         $session = $this->sessions->getSession($telegramId);
 
+        $text = trim((string) ($message['text'] ?? ''));
+        $profileEditStates = [self::STATE_PROFILE_EDIT_FIRST_NAME, self::STATE_PROFILE_EDIT_LAST_NAME, self::STATE_PROFILE_EDIT_SCHOOL];
+        if (in_array($session->state, $profileEditStates) && $text !== '') {
+            if ($this->handleProfileEditMessage($chatId, $telegramId, $text)) {
+                return;
+            }
+        }
+
         // Telefon: tugma orqali yuborilgan kontakt
         if (isset($message['contact']) && $session->state === self::STATE_WAITING_PHONE) {
             $phone = trim((string) ($message['contact']['phone_number'] ?? ''));
@@ -244,8 +354,6 @@ class RegistrationHandler
             }
             return;
         }
-
-        $text = trim((string) ($message['text'] ?? ''));
 
         if ($text === '') {
             return;
@@ -315,6 +423,16 @@ class RegistrationHandler
         if ($messageId !== null) {
             $this->sessions->setData($telegramId, 'region_message_id', $messageId);
         }
+    }
+
+    protected function askGrade(int|string $chatId): void
+    {
+        $rows = [];
+        for ($i = 1; $i <= 11; $i++) {
+            $rows[] = [['text' => (string) $i . '-sinf', 'callback_data' => 'grade_' . $i]];
+        }
+        $keyboard = ['inline_keyboard' => array_chunk(array_merge(...$rows), 3)];
+        $this->telegram->sendMessage($chatId, "Sinfingizni tanlang (1–11):", $keyboard);
     }
 }
 

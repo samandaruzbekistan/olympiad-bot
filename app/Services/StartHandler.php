@@ -2,11 +2,14 @@
 
 namespace App\Services;
 
+use App\Models\User;
+
 class StartHandler
 {
     public function __construct(
         protected TelegramService $telegram,
         protected BotSessionService $sessions,
+        protected RegistrationHandler $registrationHandler,
     ) {
     }
 
@@ -19,7 +22,15 @@ class StartHandler
             return;
         }
 
-        $text = "Assalomu alaykum!\nImel Olympiads platformasiga xush kelibsiz.";
+        $this->sessions->getSession($telegramId);
+
+        if (User::where('telegram_id', $telegramId)->exists()) {
+            $this->telegram->sendMessage($chatId, "Assalomu alaykum! Asosiy menyu:");
+            $this->registrationHandler->showMainMenu($chatId);
+            return;
+        }
+
+        $text = "Assalomu alaykum!\nOlimpiadalar platformasiga xush kelibsiz.\n\nRo‘yxatdan o‘ting:";
 
         $keyboard = [
             'inline_keyboard' => [
@@ -33,9 +44,6 @@ class StartHandler
         ];
 
         $this->telegram->sendMessage($chatId, $text, $keyboard);
-
-        // Ensure session exists; actual state transitions will be handled later.
-        $this->sessions->getSession($telegramId);
     }
 }
 
