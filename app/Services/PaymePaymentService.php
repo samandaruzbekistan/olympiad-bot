@@ -23,6 +23,7 @@ class PaymePaymentService
 
     public function __construct(
         private readonly TicketService $ticketService,
+        private readonly PaymentService $paymentService,
     ) {
     }
 
@@ -35,14 +36,15 @@ class PaymePaymentService
      */
     public function generatePaymentLink(Registration $registration): string
     {
+        // Ensure there is a payment and mark system as payme
+        $payment = $this->paymentService->setPaymentSystem($registration, 'payme');
+
         $baseUrl = (string) config('payme.checkout_url', '');
         $merchantId = (string) config('payme.merchant_id', '');
 
-        $amount = $this->expectedAmount($registration); // in so'm
-
         $params = [
             'merchant' => $merchantId,
-            'amount' => $amount,
+            'amount' => $payment->amount,
             'account[registration_id]' => $registration->id,
         ];
 

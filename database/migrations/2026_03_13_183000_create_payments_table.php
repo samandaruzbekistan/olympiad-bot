@@ -21,7 +21,7 @@ return new class extends Migration
 
             $table->unsignedInteger('amount');
 
-            $table->string('payment_system'); // click, payme, etc
+            $table->string('payment_system')->nullable(); // click, payme, etc
 
             $table->string('transaction_id')->nullable();
 

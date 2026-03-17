@@ -14,6 +14,7 @@ class OlympiadHandler
         protected TelegramService $telegram,
         protected ClickPaymentService $clickPayments,
         protected PaymePaymentService $paymePayments,
+        protected PaymentService $paymentService,
     ) {
     }
 
@@ -146,6 +147,9 @@ class OlympiadHandler
                 'payment_status' => 'pending',
             ],
         );
+
+        // Registratsiya yaratilganda bir martalik payment yozuvini ham yaratamiz (yoki mavjudini olamiz)
+        $this->paymentService->createForRegistration($registration);
 
         // To'lov havolalari
         $clickUrl = $this->clickPayments->generatePaymentLink($registration);

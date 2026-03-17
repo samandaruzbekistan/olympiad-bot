@@ -27,16 +27,14 @@ class ClickPaymentService
 
     public function __construct(
         private readonly TicketService $ticketService,
+        private readonly PaymentService $paymentService,
     ) {
     }
 
     public function generatePaymentLink(Registration $registration): string
     {
-        $olympiad = $registration->olympiad;
-
-        if ($olympiad === null) {
-            throw new InvalidArgumentException('Registration does not have an associated olympiad.');
-        }
+        // Ensure there is a payment and mark system as click
+        $payment = $this->paymentService->setPaymentSystem($registration, 'click');
 
         $serviceId = (string) config('services.click.service_id');
         $merchantId = (string) config('services.click.merchant_id');
@@ -45,7 +43,7 @@ class ClickPaymentService
         $query = http_build_query([
             'service_id' => $serviceId,
             'merchant_id' => $merchantId,
-            'amount' => $this->normalizeAmount($olympiad->price),
+            'amount' => $this->normalizeAmount($payment->amount),
             'transaction_param' => $registration->id,
         ]);
 
@@ -60,6 +58,7 @@ class ClickPaymentService
         ]);
 
         $payload = $this->normalizePayload($request);
+        
 
         if (! $this->verifySignature($payload)) {
             return $this->errorResponse(
@@ -108,7 +107,6 @@ class ClickPaymentService
 
         $payment = Payment::query()
             ->where('registration_id', $registration->id)
-            ->where('payment_system', 'click')
             ->latest('id')
             ->first();
 
@@ -116,13 +114,13 @@ class ClickPaymentService
             return $this->errorResponse($payload, self::ERROR_TRANSACTION_NOT_EXIST, 'Payment record not found.');
         }
 
-        if ($this->normalizeAmount($payment->amount) !== $payload['amount']) {
+        if ($payment->amount != $payload['amount']) {
             return $this->errorResponse($payload, self::ERROR_INCORRECT_AMOUNT, 'Amount mismatch.');
         }
 
-        if ($payment->status === 'success' || $registration->payment_status === 'paid') {
-            return $this->errorResponse($payload, self::ERROR_ALREADY_PAID, 'Payment already completed.');
-        }
+        // if ($payment->status === 'success' || $registration->payment_status === 'paid') {
+        //     return $this->errorResponse($payload, self::ERROR_ALREADY_PAID, 'Payment already completed.');
+        // }
 
         $payment->forceFill([
             'transaction_id' => $payload['click_trans_id'],
@@ -137,7 +135,7 @@ class ClickPaymentService
         if ((int) $payload['error'] < 0) {
             $payment = Payment::query()
                 ->where('registration_id', $payload['merchant_trans_id'])
-                ->where('payment_system', 'click')
+                // ->where('payment_system', 'click')
                 ->latest('id')
                 ->first();
 
@@ -146,6 +144,14 @@ class ClickPaymentService
                     'transaction_id' => $payload['click_trans_id'],
                     'status' => 'failed',
                 ])->save();
+            }
+
+            if ($payment->status === "success") {
+                return $this->errorResponse(
+                    $payload,
+                    self::ERROR_ALREADY_PAID,
+                    'Payment already completed.',
+                );
             }
 
             return $this->errorResponse(
@@ -164,7 +170,6 @@ class ClickPaymentService
         if ($payment === null) {
             $payment = Payment::query()
                 ->where('registration_id', $payload['merchant_trans_id'])
-                ->where('payment_system', 'click')
                 ->latest('id')
                 ->first();
         }
@@ -178,12 +183,16 @@ class ClickPaymentService
             return $this->errorResponse($payload, self::ERROR_USER_NOT_EXIST, 'Registration not found.');
         }
 
-        if ($this->normalizeAmount($payment->amount) !== $payload['amount']) {
+        if ($payment->amount != $payload['amount']) {
             return $this->errorResponse($payload, self::ERROR_INCORRECT_AMOUNT, 'Amount mismatch.');
         }
 
         if ($payment->status === 'success' || $registration->payment_status === 'paid') {
-            return $this->successResponse($payload, $payment->id, $payment->id);
+            return $this->errorResponse(
+                $payload,
+                self::ERROR_ALREADY_PAID,
+                'Payment already completed.'
+            );
         }
 
         try {
@@ -219,7 +228,7 @@ class ClickPaymentService
             'click_trans_id' => (string) $request->input('click_trans_id'),
             'service_id' => (string) $request->input('service_id'),
             'merchant_trans_id' => (string) $request->input('merchant_trans_id', $request->input('transaction_param')),
-            'amount' => $this->normalizeAmount($request->input('amount')),
+            'amount' => (string) $request->input('amount'),
             'action' => (int) $request->input('action'),
             'sign_time' => (string) $request->input('sign_time'),
             'sign_string' => (string) $request->input('sign_string', $request->input('signature')),
