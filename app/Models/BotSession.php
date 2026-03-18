@@ -17,5 +17,6 @@ class BotSession extends Model
 
     protected $casts = [
         'data' => 'array',
+        'telegram_id' => 'string',
     ];
 }

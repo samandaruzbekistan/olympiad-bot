@@ -24,6 +24,10 @@ class User extends Authenticatable
         'grade',
     ];
 
+    protected $casts = [
+        'telegram_id' => 'string',
+    ];
+
     public function region(): BelongsTo
     {
         return $this->belongsTo(Region::class);
