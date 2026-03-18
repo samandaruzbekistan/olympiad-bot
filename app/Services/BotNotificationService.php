@@ -3,12 +3,14 @@
 namespace App\Services;
 
 use App\Models\Registration;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 
 class BotNotificationService
 {
     public function __construct(
         private readonly TelegramService $telegramService,
+        private readonly TicketImageService $ticketImageService,
     ) {
     }
 
@@ -32,14 +34,14 @@ class BotNotificationService
             $location .= ' (' . $olympiad->location_address . ')';
         }
 
-        $date = $olympiad->start_date?->format('d.m.Y H:i') ?? 'Noma’lum';
+        $date = $olympiad->start_date?->format('d.m.Y H:i') ?? "Noma'lum";
 
-        $message = "To‘lov muvaffaqiyatli amalga oshirildi ✅\n\n"
-            . "🎟 Ticket: {$registration->ticket_number}\n"
+        $caption = "✅ To'lov muvaffaqiyatli amalga oshirildi!\n\n"
+            . "🎟 Ticket: <b>{$registration->ticket_number}</b>\n"
             . "📍 Manzil: {$location}\n"
             . "📅 Sana: {$date}";
 
-        $this->telegramService->sendMessage($user->telegram_id, $message);
+        $this->sendTicketImage($registration, $user->telegram_id, $caption);
 
         if ($olympiad->latitude !== null && $olympiad->longitude !== null) {
             $this->telegramService->sendLocation(
@@ -47,6 +49,27 @@ class BotNotificationService
                 (float) $olympiad->latitude,
                 (float) $olympiad->longitude,
             );
+        }
+    }
+
+    private function sendTicketImage(Registration $registration, string|int $chatId, string $caption): void
+    {
+        try {
+            $pngData = $this->ticketImageService->render($registration);
+
+            $this->telegramService->sendPhotoFromBinary(
+                $chatId,
+                $pngData,
+                "ticket-{$registration->ticket_number}.png",
+                $caption,
+            );
+        } catch (\Throwable $e) {
+            Log::error('Failed to render/send ticket image, falling back to text', [
+                'registration_id' => $registration->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            $this->telegramService->sendMessage($chatId, $caption);
         }
     }
 }

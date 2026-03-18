@@ -6,6 +6,7 @@ use App\Models\Olympiad;
 use App\Models\Registration;
 use App\Models\User;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\URL;
 
 class OlympiadHandler
@@ -15,6 +16,8 @@ class OlympiadHandler
         protected ClickPaymentService $clickPayments,
         protected PaymePaymentService $paymePayments,
         protected PaymentService $paymentService,
+        protected TicketImageService $ticketImageService,
+        protected TicketService $ticketService,
     ) {
     }
 
@@ -78,6 +81,13 @@ class OlympiadHandler
             return;
         }
 
+        $user = User::where('telegram_id', $telegramId)->first();
+        $registration = $user
+            ? Registration::where('user_id', $user->id)->where('olympiad_id', $olympiad->id)->first()
+            : null;
+
+        $alreadyPaid = $registration !== null && $registration->payment_status === 'paid';
+
         $text = "🏆 {$olympiad->title}\n\n";
         if ($olympiad->description) {
             $text .= "📝 {$olympiad->description}\n\n";
@@ -85,18 +95,24 @@ class OlympiadHandler
         $date = $olympiad->start_date?->format('Y-m-d H:i') ?? '—';
         $text .= "📅 Sana: {$date}\n";
         $text .= "📍 Manzil: " . ($olympiad->location_name ?? '—') . "\n";
-        $text .= "💰 Narxi: " . number_format((int) $olympiad->price, 0, '.', ' ') . " so'm";
 
-        $keyboard = [
-            'inline_keyboard' => [
-                [
-                    ['text' => '✅ Ishtirok etish', 'callback_data' => 'participate_' . $olympiad->id],
+        if ($alreadyPaid) {
+            $text .= "\n✅ <b>Siz ushbu olimpiada ishtirokchisisiz!</b>";
+            $keyboard = [
+                'inline_keyboard' => [
+                    [['text' => '🎫 Biletni ko\'rish', 'callback_data' => 'ticket_' . $registration->id]],
+                    [['text' => '⬅️ Bosh menu', 'callback_data' => 'main_menu']],
                 ],
-                [
-                    ['text' => '⬅️ Bosh menu', 'callback_data' => 'main_menu'],
+            ];
+        } else {
+            $text .= "💰 Narxi: " . number_format((int) $olympiad->price, 0, '.', ' ') . " so'm";
+            $keyboard = [
+                'inline_keyboard' => [
+                    [['text' => '✅ Ishtirok etish', 'callback_data' => 'participate_' . $olympiad->id]],
+                    [['text' => '⬅️ Bosh menu', 'callback_data' => 'main_menu']],
                 ],
-            ],
-        ];
+            ];
+        }
 
         $logoUrl = $this->buildLogoUrl($olympiad->logo);
 
@@ -148,8 +164,11 @@ class OlympiadHandler
             $this->telegram->editMessageText(
                 $chatId,
                 (int) $messageId,
-                "✅ Siz allaqachon ushbu olimpiadaga to'lov qilgansiz.",
-                [['text' => '⬅️ Bosh menu', 'callback_data' => 'main_menu']],
+                "✅ Siz ushbu olimpiada ishtirokchisisiz!",
+                [
+                    [['text' => '🎫 Biletni ko\'rish', 'callback_data' => 'ticket_' . $registration->id]],
+                    [['text' => '⬅️ Bosh menu', 'callback_data' => 'main_menu']],
+                ],
             );
             return;
         }
@@ -173,6 +192,74 @@ class OlympiadHandler
             "💳 To'lov turini tanlang:\n\n🏆 {$olympiad->title}\n💰 Narxi: {$price} so'm",
             $rows,
         );
+    }
+
+    public function handleTicketRequest(array $callback): void
+    {
+        $data = $callback['data'] ?? null;
+        $chatId = $callback['message']['chat']['id'] ?? null;
+        $telegramId = $callback['from']['id'] ?? null;
+
+        if ($chatId === null || $telegramId === null || ! is_string($data)) {
+            return;
+        }
+
+        $registrationId = (int) substr($data, strlen('ticket_'));
+        $registration = Registration::with(['user', 'olympiad'])->find($registrationId);
+
+        if ($registration === null) {
+            $this->telegram->sendMessage($chatId, "❌ Ro'yxat topilmadi.");
+            return;
+        }
+
+        $user = User::where('telegram_id', $telegramId)->first();
+        if ($user === null || $registration->user_id !== $user->id) {
+            $this->telegram->sendMessage($chatId, "❌ Bu bilet sizga tegishli emas.");
+            return;
+        }
+
+        if ($registration->payment_status !== 'paid') {
+            $this->telegram->sendMessage($chatId, "❌ To'lov hali amalga oshirilmagan.");
+            return;
+        }
+
+        if ($registration->ticket_number === null) {
+            $this->ticketService->createTicket($registration->id);
+            $registration->refresh();
+        }
+
+        try {
+            $pngData = $this->ticketImageService->render($registration);
+
+            $olympiad = $registration->olympiad;
+            $location = $olympiad->location_name ?? '—';
+            if (! empty($olympiad->location_address)) {
+                $location .= ' (' . $olympiad->location_address . ')';
+            }
+            $date = $olympiad->start_date?->format('d.m.Y H:i') ?? "Noma'lum";
+
+            $caption = "🎫 <b>Sizning biletingiz</b>\n\n"
+                . "🏆 {$olympiad->title}\n"
+                . "🎟 Ticket: <b>{$registration->ticket_number}</b>\n"
+                . "📍 Manzil: {$location}\n"
+                . "📅 Sana: {$date}";
+
+            $this->telegram->sendPhotoFromBinary(
+                $chatId,
+                $pngData,
+                "ticket-{$registration->ticket_number}.png",
+                $caption,
+            );
+        } catch (\Throwable $e) {
+            Log::error('Failed to generate ticket image', [
+                'registration_id' => $registration->id,
+                'error' => $e->getMessage(),
+            ]);
+            $this->telegram->sendMessage(
+                $chatId,
+                "🎫 Bilet: <b>{$registration->ticket_number}</b>\n\nRasm generatsiya qilishda xatolik yuz berdi.",
+            );
+        }
     }
 
     private function buildLogoUrl(?string $path): ?string

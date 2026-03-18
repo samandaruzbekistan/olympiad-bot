@@ -102,7 +102,13 @@ class BotManager
             return;
         }
 
-        // payment callbacklar o'chirildi (Click/Payme integratsiyasi tozalandi)
+        if (is_string($data) && str_starts_with($data, 'ticket_')) {
+            $this->olympiadHandler->handleTicketRequest($callback);
+            if ($callbackId !== null) {
+                $this->telegram->answerCallback($callbackId);
+            }
+            return;
+        }
 
         if ($data === 'main_menu') {
             $chatId = $callback['message']['chat']['id'] ?? null;

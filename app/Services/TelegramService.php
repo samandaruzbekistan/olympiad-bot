@@ -77,6 +77,30 @@ class TelegramService
         return $this->post('sendPhoto', $payload);
     }
 
+    /**
+     * Send a photo from raw binary data (e.g. in-memory PNG) without saving to disk.
+     */
+    public function sendPhotoFromBinary(
+        string|int $chatId,
+        string $binaryData,
+        string $filename = 'ticket.png',
+        ?string $caption = null,
+    ): Response {
+        $stream = fopen('php://temp', 'r+');
+        fwrite($stream, $binaryData);
+        rewind($stream);
+
+        $request = $this->client()->attach('photo', $stream, $filename);
+
+        $payload = ['chat_id' => $chatId];
+        if ($caption !== null) {
+            $payload['caption'] = $caption;
+            $payload['parse_mode'] = 'HTML';
+        }
+
+        return $request->post('sendPhoto', $payload)->throw();
+    }
+
     public function editMessageText(
         string|int $chatId,
         int $messageId,
