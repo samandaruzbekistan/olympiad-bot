@@ -12,9 +12,6 @@ class BotManager
     ) {
     }
 
-    /**
-     * Entry point for processing a Telegram update.
-     */
     public function handle(array $update): void
     {
         if (isset($update['callback_query'])) {
@@ -28,11 +25,6 @@ class BotManager
         }
     }
 
-    /**
-     * Handle an incoming message update.
-     *
-     * Routes between commands (e.g. /start) and regular messages.
-     */
     public function handleMessage(array $message): void
     {
         $chatId = $message['chat']['id'] ?? null;
@@ -48,15 +40,11 @@ class BotManager
             return;
         }
 
-        // Matn yoki kontakt (telefon tugmasi) — registration handler ga yuboramiz
         if (isset($message['contact']) || $text !== '') {
             $this->handlePlainMessage($chatId, $text, $message);
         }
     }
 
-    /**
-     * Handle an incoming callback query.
-     */
     public function handleCallback(array $callback): void
     {
         $callbackId = $callback['id'] ?? null;
@@ -64,11 +52,9 @@ class BotManager
 
         if ($data === 'register_start') {
             $this->registrationHandler->handleCallback($callback);
-
             if ($callbackId !== null) {
                 $this->telegram->answerCallback($callbackId);
             }
-
             return;
         }
 
@@ -110,11 +96,27 @@ class BotManager
             return;
         }
 
+        if (is_string($data) && str_starts_with($data, 'payments_page_')) {
+            $chatId = $callback['message']['chat']['id'] ?? null;
+            $messageId = $callback['message']['message_id'] ?? null;
+            $telegramId = $callback['from']['id'] ?? null;
+            if ($chatId !== null && $telegramId !== null && $messageId !== null) {
+                $user = \App\Models\User::where('telegram_id', $telegramId)->first();
+                if ($user !== null) {
+                    $page = (int) substr($data, strlen('payments_page_'));
+                    $this->showUserPayments($chatId, $user, $page, $messageId);
+                }
+            }
+            if ($callbackId !== null) {
+                $this->telegram->answerCallback($callbackId);
+            }
+            return;
+        }
+
         if ($data === 'main_menu') {
             $chatId = $callback['message']['chat']['id'] ?? null;
             $messageId = $callback['message']['message_id'] ?? null;
             if ($chatId !== null && $messageId !== null) {
-                // Hozirgi inline xabarni o'chirib, bosh menyuni qayta ko'rsatamiz
                 $this->telegram->deleteMessage($chatId, $messageId);
                 $this->registrationHandler->showMainMenu($chatId);
             } elseif ($chatId !== null) {
@@ -159,19 +161,14 @@ class BotManager
         }
         $user = \App\Models\User::where('telegram_id', $telegramId)->first();
         if ($data === 'menu_olympiads') {
-            $this->telegram->sendMessage($chatId, "Olimpiadalar bo‘limi. Tez orada bu yerda ro‘yxat ko‘rinadi.");
+            $this->olympiadHandler->showOlympiads($chatId, $telegramId);
+        } elseif ($data === 'menu_payments' && $user !== null) {
+            $this->showUserPayments($chatId, $user);
         } elseif ($data === 'menu_profile') {
             $this->sendProfileContent($chatId, $telegramId);
-        } elseif ($data === 'menu_payments') {
-            $this->telegram->sendMessage($chatId, "To‘lovlarim. Tez orada bu yerda to‘lovlar ro‘yxati ko‘rinadi.");
-        } elseif ($data === 'menu_tickets') {
-            $this->telegram->sendMessage($chatId, "Biletlarim. Tez orada bu yerda chiptalar ro‘yxati ko‘rinadi.");
         }
     }
 
-    /**
-     * Route Telegram commands such as /start.
-     */
     protected function handleCommand(int|string $chatId, string $text, array $message): void
     {
         $command = trim(strtok($text, ' '));
@@ -185,9 +182,6 @@ class BotManager
         $this->handleUnknownCommand($chatId, $command, $message);
     }
 
-    /**
-     * Handle non-command text messages (yozilgan matn yoki reply keyboard tugmasi).
-     */
     protected function handlePlainMessage(int|string $chatId, string $text, array $message): void
     {
         $telegramId = $message['from']['id'] ?? $chatId;
@@ -198,16 +192,8 @@ class BotManager
                 $this->olympiadHandler->showOlympiads($chatId, $telegramId);
                 return;
             }
-            if ($text === '📊 Natijlarim') {
-                $this->telegram->sendMessage($chatId, "📊 Natijlarim. Tez orada bu yerda natijalar ro'yxati ko'rinadi.");
-                return;
-            }
-            if ($text === '💳 To\'lovlar') {
-                $this->telegram->sendMessage($chatId, "💳 To'lovlar. Tez orada bu yerda to'lovlar ro'yxati ko'rinadi.");
-                return;
-            }
-            if ($text === '🎫 Biletlar') {
-                $this->telegram->sendMessage($chatId, "🎫 Biletlar. Tez orada bu yerda chiptalar ro'yxati ko'rinadi.");
+            if ($text === '💳 To\'lovlarim') {
+                $this->showUserPayments($chatId, $user);
                 return;
             }
             if ($text === '👤 Profil') {
@@ -250,20 +236,82 @@ class BotManager
         $this->telegram->sendMessage($chatId, $text, $keyboard);
     }
 
-    /**
-     * Handle the /start command.
-     */
+    protected function showUserPayments(int|string $chatId, \App\Models\User $user, int $page = 1, ?int $editMessageId = null): void
+    {
+        $perPage = 10;
+        $registrations = \App\Models\Registration::with('olympiad')
+            ->where('user_id', $user->id)
+            ->orderByDesc('created_at')
+            ->get();
+
+        $total = $registrations->count();
+
+        if ($total === 0) {
+            $text = "💳 <b>To'lovlarim</b>\n\nSizda hali to'lovlar mavjud emas.";
+            if ($editMessageId !== null) {
+                $this->telegram->editMessageText($chatId, $editMessageId, $text);
+            } else {
+                $this->telegram->sendMessage($chatId, $text);
+            }
+            return;
+        }
+
+        $totalPages = (int) ceil($total / $perPage);
+        $page = max(1, min($page, $totalPages));
+        $items = $registrations->slice(($page - 1) * $perPage, $perPage);
+
+        $statusLabels = [
+            'paid' => '✅ To\'langan',
+            'pending' => '⏳ Kutilmoqda',
+            'failed' => '❌ Muvaffaqiyatsiz',
+        ];
+
+        $text = "💳 <b>To'lovlarim</b> ({$page}/{$totalPages})\n\n";
+        $num = ($page - 1) * $perPage;
+
+        foreach ($items as $reg) {
+            $num++;
+            $title = $reg->olympiad?->title ?? '—';
+            $status = $statusLabels[$reg->payment_status] ?? $reg->payment_status;
+            $price = $reg->olympiad?->price ? number_format((int) $reg->olympiad->price, 0, '.', ' ') . " so'm" : '—';
+            $date = $reg->created_at->format('d.m.Y');
+            $ticket = $reg->ticket_number ? "🎟 {$reg->ticket_number}" : '';
+
+            $text .= "<b>{$num}.</b> {$title}\n";
+            $text .= "   {$status} · {$price} · {$date}";
+            if ($ticket !== '') {
+                $text .= "\n   {$ticket}";
+            }
+            $text .= "\n\n";
+        }
+
+        $buttons = [];
+        $navRow = [];
+        if ($page > 1) {
+            $navRow[] = ['text' => '⬅️ Oldingi', 'callback_data' => 'payments_page_' . ($page - 1)];
+        }
+        if ($page < $totalPages) {
+            $navRow[] = ['text' => 'Keyingi ➡️', 'callback_data' => 'payments_page_' . ($page + 1)];
+        }
+        if (! empty($navRow)) {
+            $buttons[] = $navRow;
+        }
+
+        if ($editMessageId !== null) {
+            $this->telegram->editMessageText($chatId, $editMessageId, $text, ! empty($buttons) ? $buttons : null);
+        } else {
+            $keyboard = ! empty($buttons) ? ['inline_keyboard' => $buttons] : null;
+            $this->telegram->sendMessage($chatId, $text, $keyboard);
+        }
+    }
+
     protected function handleStartCommand(int|string $chatId, array $message): void
     {
         $this->startHandler->handle($message);
     }
 
-    /**
-     * Handle unknown commands.
-     */
     protected function handleUnknownCommand(int|string $chatId, string $command, array $message): void
     {
         $this->telegram->sendMessage($chatId, "Unknown command: {$command}");
     }
 }
-

@@ -101,6 +101,27 @@ class TelegramService
         return $request->post('sendPhoto', $payload)->throw();
     }
 
+    public function sendVideo(
+        string|int $chatId,
+        string|SplFileInfo|File|UploadedFile $video,
+        ?string $caption = null,
+    ): Response {
+        $payload = ['chat_id' => $chatId];
+
+        if ($caption !== null) {
+            $payload['caption'] = $caption;
+            $payload['parse_mode'] = 'HTML';
+        }
+
+        $path = is_string($video) ? $video : ($video->getRealPath() ?: $video->getPathname());
+        $name = is_string($video) ? basename($video) : $video->getFilename();
+
+        return $this->client()
+            ->attach('video', fopen($path, 'r'), $name)
+            ->post('sendVideo', $payload)
+            ->throw();
+    }
+
     public function editMessageText(
         string|int $chatId,
         int $messageId,

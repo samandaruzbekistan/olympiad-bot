@@ -125,8 +125,9 @@ class RegistrationHandler
             $this->sessions->setData($telegramId, 'subject_ids', []);
 
             $subjects = Subject::orderBy('name')->get();
-            $rows = $this->buildSubjectRows($subjects);
-            $text = $this->buildSubjectMessageText($subjects, []);
+            $selected = [];
+            $rows = $this->buildSubjectRows($subjects, $selected);
+            $text = $this->buildSubjectMessageText($subjects, $selected);
             $this->safeEditMessageText($chatId, $messageId, $text, $rows);
             return true;
         }
@@ -140,11 +141,11 @@ class RegistrationHandler
             } else {
                 array_splice($selected, $key, 1);
             }
-            $this->sessions->setData($telegramId, 'subject_ids', $selected);
             $selected = array_values($selected);
+            $this->sessions->setData($telegramId, 'subject_ids', $selected);
 
             $subjects = Subject::orderBy('name')->get();
-            $rows = $this->buildSubjectRows($subjects);
+            $rows = $this->buildSubjectRows($subjects, $selected);
             $text = $this->buildSubjectMessageText($subjects, $selected);
             $this->safeEditMessageText($chatId, $messageId, $text, $rows);
             return true;
@@ -232,13 +233,14 @@ class RegistrationHandler
         return $line;
     }
 
-    /** Tugmalar — faqat fan nomi, tanlanganlik xabarda. */
-    private function buildSubjectRows($subjects): array
+    private function buildSubjectRows($subjects, array $selectedIds = []): array
     {
+        $selectedIds = $this->normalizeSubjectIds($selectedIds);
         $rows = [];
         $row = [];
         foreach ($subjects as $s) {
-            $row[] = ['text' => $s->name, 'callback_data' => 'subject_toggle_' . $s->id];
+            $label = in_array($s->id, $selectedIds, true) ? '✅ ' . $s->name : $s->name;
+            $row[] = ['text' => $label, 'callback_data' => 'subject_toggle_' . $s->id];
             if (count($row) >= 2) {
                 $rows[] = $row;
                 $row = [];
@@ -258,11 +260,7 @@ class RegistrationHandler
             'keyboard' => [
                 [
                     ['text' => '🏆 Olimpiadalar'],
-                    ['text' => '📊 Natijlarim'],
-                ],
-                [
-                    ['text' => '💳 To\'lovlar'],
-                    ['text' => '🎫 Biletlar'],
+                    ['text' => '💳 To\'lovlarim'],
                 ],
                 [
                     ['text' => '👤 Profil'],

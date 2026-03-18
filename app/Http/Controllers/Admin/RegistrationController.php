@@ -23,7 +23,11 @@ class RegistrationController extends Controller
             });
         }
 
-        $registrations = $query->orderByDesc('created_at')->paginate(15)->withQueryString();
+        if ($paymentStatus = $request->query('payment_status')) {
+            $query->where('payment_status', $paymentStatus);
+        }
+
+        $registrations = $query->orderByDesc('created_at')->paginate(20)->withQueryString();
 
         return view('admin.registrations.index', compact('registrations'));
     }
