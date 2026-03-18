@@ -13,13 +13,13 @@ class Payment extends Model
     protected $fillable = [
         'registration_id',
         'amount',
-        'payment_system',
-        'transaction_id',
         'status',
+        'transaction_id',
         'paid_at',
     ];
 
     protected $casts = [
+        'amount' => 'decimal:2',
         'paid_at' => 'datetime',
     ];
 
@@ -28,4 +28,3 @@ class Payment extends Model
         return $this->belongsTo(Registration::class);
     }
 }
-

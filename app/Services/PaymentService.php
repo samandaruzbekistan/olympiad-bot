@@ -4,64 +4,51 @@ namespace App\Services;
 
 use App\Models\Payment;
 use App\Models\Registration;
-use InvalidArgumentException;
+use Illuminate\Support\Facades\DB;
 
 class PaymentService
 {
-    /**
-     * Create (or return existing) payment for a registration.
-     *
-     * - Only one active payment per registration.
-     * - Amount comes from olympiad price.
-     * - payment_system is left null until user selects a method.
-     */
     public function createForRegistration(Registration $registration): Payment
     {
-        $existing = Payment::query()
-            ->where('registration_id', $registration->id)
-            ->latest('id')
-            ->first();
-
+        $existing = $registration->payment;
         if ($existing !== null) {
             return $existing;
         }
 
-        $olympiad = $registration->olympiad;
-        if ($olympiad === null) {
-            throw new InvalidArgumentException('Registration does not have an associated olympiad.');
-        }
-
-        return Payment::query()->create([
+        return Payment::create([
             'registration_id' => $registration->id,
-            'amount' => (int) $olympiad->price,
-            'payment_system' => null,
+            'amount' => $registration->olympiad->price ?? 0,
             'status' => 'pending',
-            'transaction_id' => null,
-            'paid_at' => null,
         ]);
     }
 
-    /**
-     * Set payment system (click, payme, etc) for a registration's payment.
-     *
-     * Ensures a payment exists and reuses it.
-     */
-    public function setPaymentSystem(Registration $registration, string $system): Payment
+    public function setSystem(Registration $registration, string $system): void
     {
-        $system = strtolower($system);
+        $registration->forceFill(['payment_system' => $system])->save();
+    }
 
-        if (! in_array($system, ['click', 'payme'], true)) {
-            throw new InvalidArgumentException("Unsupported payment system: {$system}");
-        }
+    public function markPaid(Payment $payment): void
+    {
+        DB::transaction(function () use ($payment) {
+            $payment->forceFill([
+                'status' => 'success',
+                'paid_at' => now(),
+            ])->save();
 
-        $payment = $this->createForRegistration($registration);
+            $payment->registration->forceFill([
+                'payment_status' => 'paid',
+            ])->save();
+        });
+    }
 
-        if ($payment->payment_system !== $system) {
-            $payment->payment_system = $system;
-            $payment->save();
-        }
+    public function markFailed(Payment $payment): void
+    {
+        DB::transaction(function () use ($payment) {
+            $payment->forceFill(['status' => 'failed'])->save();
 
-        return $payment;
+            $payment->registration->forceFill([
+                'payment_status' => 'failed',
+            ])->save();
+        });
     }
 }
-

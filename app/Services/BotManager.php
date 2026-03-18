@@ -102,13 +102,7 @@ class BotManager
             return;
         }
 
-        if (is_string($data) && (str_starts_with($data, 'payment_click_') || str_starts_with($data, 'payment_payme_'))) {
-            $this->olympiadHandler->handlePaymentCallback($callback);
-            if ($callbackId !== null) {
-                $this->telegram->answerCallback($callbackId);
-            }
-            return;
-        }
+        // payment callbacklar o'chirildi (Click/Payme integratsiyasi tozalandi)
 
         if ($data === 'main_menu') {
             $chatId = $callback['message']['chat']['id'] ?? null;

@@ -3,322 +3,321 @@
 namespace App\Services;
 
 use App\Models\Payment;
+use App\Models\PaymeTransaction;
 use App\Models\Registration;
-use Illuminate\Support\Carbon;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class PaymePaymentService
 {
-    private const STATE_CREATED = 1;
-    private const STATE_COMPLETED = 2;
-    private const STATE_CANCELLED = -1;
-
-    public const ERROR_INVALID_AMOUNT = -31001;
-    public const ERROR_REGISTRATION_NOT_FOUND = -31050;
-    public const ERROR_TRANSACTION_NOT_FOUND = -31003;
-    public const ERROR_CANNOT_PERFORM = -31008;
-    public const ERROR_INVALID_ACCOUNT = -31050;
-    public const ERROR_INVALID_METHOD = -32601;
+    private const TIMEOUT_MS = 43_200_000; // 12 hours
 
     public function __construct(
-        private readonly TicketService $ticketService,
         private readonly PaymentService $paymentService,
-    ) {
-    }
+        private readonly TicketService $ticketService,
+        private readonly BotNotificationService $notificationService,
+    ) {}
 
-    /**
-     * Generate a user-facing Payme payment link for the given registration.
-     *
-     * This is used by the Telegram bot to redirect the user to Payme's
-     * payment page, while the actual JSON-RPC callbacks are still handled
-     * by the methods below.
-     */
     public function generatePaymentLink(Registration $registration): string
     {
-        // Ensure there is a payment and mark system as payme
-        $payment = $this->paymentService->setPaymentSystem($registration, 'payme');
+        $registration->loadMissing('olympiad');
+        $amount = (int) $registration->olympiad->price * 100; // tiyin
+        $merchantId = config('services.payme.merchant_id');
+        $baseUrl = config('services.payme.checkout_url', 'https://checkout.paycom.uz');
 
-        $baseUrl = (string) config('payme.checkout_url', '');
-        $merchantId = (string) config('payme.merchant_id', '');
+        $params = base64_encode("m={$merchantId};ac.registration_id={$registration->id};a={$amount}");
 
-        $params = [
-            'merchant' => $merchantId,
-            'amount' => $payment->amount,
-            'account[registration_id]' => $registration->id,
-        ];
-
-        // Agar konfiguratsiyada to'liq URL berilmagan bo'lsa, default Payme checkout URL dan foydalanamiz.
-        if ($baseUrl === '' || ! str_starts_with($baseUrl, 'http')) {
-            $baseUrl = 'https://checkout.paycom.uz';
-        }
-
-        return rtrim($baseUrl, '?') . '?' . http_build_query($params);
+        return rtrim($baseUrl, '/') . '/' . $params;
     }
 
-    public function checkPerformTransaction(array $params): array
+    public function handleRequest(Request $request): array
     {
-        $registration = $this->findRegistrationFromAccount($params['account'] ?? []);
-        $amount = $this->extractAmount($params);
+        Log::info('Payme request received', $request->all());
 
-        if ($registration === null) {
-            throw new PaymeException(self::ERROR_REGISTRATION_NOT_FOUND, 'Registration not found.');
+        if (! $this->authenticate($request)) {
+            return $this->errorResponse(-32504, 'Unauthorized', 'auth');
         }
 
-        if ($registration->payment_status === 'paid') {
-            throw new PaymeException(self::ERROR_CANNOT_PERFORM, 'Registration has already been paid.');
-        }
+        $body = $request->all();
+        $method = $body['method'] ?? '';
+        $params = $body['params'] ?? [];
+        $id = $body['id'] ?? null;
 
-        if ($amount !== $this->expectedAmount($registration)) {
-            throw new PaymeException(self::ERROR_INVALID_AMOUNT, 'Incorrect amount.');
-        }
-
-        return [
-            'allow' => true,
-        ];
-    }
-
-    public function createTransaction(array $params): array
-    {
-        $transactionId = (string) ($params['id'] ?? '');
-        $account = $params['account'] ?? [];
-        $registration = $this->findRegistrationFromAccount($account);
-        $amount = $this->extractAmount($params);
-
-        if ($registration === null) {
-            throw new PaymeException(self::ERROR_REGISTRATION_NOT_FOUND, 'Registration not found.');
-        }
-
-        if ($amount !== $this->expectedAmount($registration)) {
-            throw new PaymeException(self::ERROR_INVALID_AMOUNT, 'Incorrect amount.');
-        }
-
-        $existingPayment = Payment::query()
-            ->where('transaction_id', $transactionId)
-            ->where('payment_system', 'payme')
-            ->first();
-
-        if ($existingPayment !== null) {
-            return $this->buildTransactionPayload($existingPayment);
-        }
-
-        $successfulPayment = Payment::query()
-            ->where('registration_id', $registration->id)
-            ->where('payment_system', 'payme')
-            ->where('status', 'success')
-            ->latest('id')
-            ->first();
-
-        if ($successfulPayment !== null || $registration->payment_status === 'paid') {
-            throw new PaymeException(self::ERROR_CANNOT_PERFORM, 'Registration has already been paid.');
-        }
-
-        $payment = Payment::query()->create([
-            'registration_id' => $registration->id,
-            'amount' => $amount,
-            'payment_system' => 'payme',
-            'transaction_id' => $transactionId,
-            'status' => 'pending',
-        ]);
-
-        $createTime = $this->timestampToCarbon($params['time'] ?? null);
-        $payment->forceFill([
-            'created_at' => $createTime,
-            'updated_at' => $createTime,
-        ])->save();
-
-        return $this->buildTransactionPayload($payment->fresh());
-    }
-
-    public function performTransaction(array $params): array
-    {
-        $transactionId = (string) ($params['id'] ?? '');
-
-        $payment = $this->findPaymentByTransactionId($transactionId);
-        if ($payment === null) {
-            throw new PaymeException(self::ERROR_TRANSACTION_NOT_FOUND, 'Transaction not found.');
-        }
-
-        if ($payment->status === 'success') {
-            return $this->buildTransactionPayload($payment);
-        }
-
-        if ($payment->status === 'failed') {
-            throw new PaymeException(self::ERROR_CANNOT_PERFORM, 'Transaction has been cancelled.');
-        }
-
-        $registration = $payment->registration;
-        if ($registration === null) {
-            throw new PaymeException(self::ERROR_REGISTRATION_NOT_FOUND, 'Registration not found.');
-        }
-
-        DB::transaction(function () use ($payment, $registration): void {
-            $payment->forceFill([
-                'status' => 'success',
-                'paid_at' => now(),
-            ])->save();
-
-            $registration->forceFill([
-                'payment_status' => 'paid',
-            ])->save();
-
-            $this->ticketService->createTicket($registration->id);
-        });
-
-        return $this->buildTransactionPayload($payment->fresh());
-    }
-
-    public function cancelTransaction(array $params): array
-    {
-        $transactionId = (string) ($params['id'] ?? '');
-
-        $payment = $this->findPaymentByTransactionId($transactionId);
-        if ($payment === null) {
-            throw new PaymeException(self::ERROR_TRANSACTION_NOT_FOUND, 'Transaction not found.');
-        }
-
-        if ($payment->status === 'success') {
-            throw new PaymeException(self::ERROR_CANNOT_PERFORM, 'Completed transaction cannot be cancelled.');
-        }
-
-        if ($payment->status !== 'failed') {
-            DB::transaction(function () use ($payment): void {
-                $payment->forceFill([
-                    'status' => 'failed',
-                    'paid_at' => null,
-                ])->save();
-            });
-        }
-
-        return $this->buildTransactionPayload($payment->fresh() ?? $payment);
-    }
-
-    public function checkTransaction(array $params): array
-    {
-        $transactionId = (string) ($params['id'] ?? '');
-
-        $payment = $this->findPaymentByTransactionId($transactionId);
-        if ($payment === null) {
-            throw new PaymeException(self::ERROR_TRANSACTION_NOT_FOUND, 'Transaction not found.');
-        }
-
-        return $this->buildTransactionPayload($payment);
-    }
-
-    public function authorize(?string $authorizationHeader): void
-    {
-        if ($authorizationHeader === null || ! str_starts_with($authorizationHeader, 'Basic ')) {
-            throw new PaymeException(-32504, 'Unauthorized.');
-        }
-
-        $encodedCredentials = substr($authorizationHeader, 6);
-        $decodedCredentials = base64_decode($encodedCredentials, true);
-
-        if ($decodedCredentials === false) {
-            throw new PaymeException(-32504, 'Unauthorized.');
-        }
-
-        [$login, $password] = array_pad(explode(':', $decodedCredentials, 2), 2, null);
-
-        if (
-            $login !== (string) config('payme.login')
-            || $password !== (string) config('payme.password')
-        ) {
-            throw new PaymeException(-32504, 'Unauthorized.');
-        }
-    }
-
-    public function dispatch(string $method, array $params): array
-    {
-        Log::info('Payme request dispatched', [
-            'method' => $method,
-            'params' => $params,
-        ]);
-
-        return match ($method) {
+        $result = match ($method) {
             'CheckPerformTransaction' => $this->checkPerformTransaction($params),
             'CreateTransaction' => $this->createTransaction($params),
             'PerformTransaction' => $this->performTransaction($params),
             'CancelTransaction' => $this->cancelTransaction($params),
             'CheckTransaction' => $this->checkTransaction($params),
-            default => throw new PaymeException(self::ERROR_INVALID_METHOD, 'Method not found.'),
+            default => $this->errorResponse(-32601, 'Method not found', 'method'),
         };
+
+        if (isset($result['error'])) {
+            return ['jsonrpc' => '2.0', 'id' => $id, 'error' => $result['error']];
+        }
+
+        return ['jsonrpc' => '2.0', 'id' => $id, 'result' => $result];
     }
 
-    private function findRegistrationFromAccount(array $account): ?Registration
+    private function checkPerformTransaction(array $params): array
     {
+        $registrationId = $params['account']['registration_id'] ?? null;
+        $amount = $params['amount'] ?? 0;
+
+        $registration = Registration::with('olympiad')->find($registrationId);
+
+        if ($registration === null) {
+            return $this->errorResponse(-31050, 'Registration not found', 'registration_id');
+        }
+
+        $expectedAmount = (int) $registration->olympiad->price * 100;
+
+        if ((int) $amount !== $expectedAmount) {
+            return $this->errorResponse(-31001, 'Incorrect amount', 'amount');
+        }
+
+        if ($registration->payment_status === 'paid') {
+            return $this->errorResponse(-31008, 'Order already paid', 'order');
+        }
+
+        return ['allow' => true];
+    }
+
+    private function createTransaction(array $params): array
+    {
+        $paymeId = $params['id'] ?? null;
+        $time = $params['time'] ?? 0;
+        $amount = $params['amount'] ?? 0;
+        $account = $params['account'] ?? [];
         $registrationId = $account['registration_id'] ?? null;
-        if ($registrationId === null) {
-            throw new PaymeException(self::ERROR_INVALID_ACCOUNT, 'registration_id is required.');
+
+        $registration = Registration::with('olympiad', 'payment')->find($registrationId);
+
+        if ($registration === null) {
+            return $this->errorResponse(-31050, 'Registration not found', 'registration_id');
         }
 
-        return Registration::query()
-            ->with('olympiad')
-            ->find($registrationId);
-    }
+        $expectedAmount = (int) $registration->olympiad->price * 100;
 
-    private function extractAmount(array $params): int
-    {
-        if (! array_key_exists('amount', $params)) {
-            throw new PaymeException(self::ERROR_INVALID_AMOUNT, 'Amount is required.');
+        if ((int) $amount !== $expectedAmount) {
+            return $this->errorResponse(-31001, 'Incorrect amount', 'amount');
         }
 
-        return (int) $params['amount'];
-    }
+        $existingTx = PaymeTransaction::where('payme_id', $paymeId)->first();
 
-    private function expectedAmount(Registration $registration): int
-    {
-        if ($registration->olympiad === null) {
-            throw new PaymeException(self::ERROR_INVALID_ACCOUNT, 'Registration olympiad not found.');
+        if ($existingTx !== null) {
+            if ($existingTx->state !== PaymeTransaction::STATE_CREATED) {
+                return $this->errorResponse(-31008, 'Unable to perform operation', 'transaction');
+            }
+
+            if ($this->isExpired($existingTx)) {
+                $existingTx->forceFill([
+                    'state' => PaymeTransaction::STATE_CANCELLED,
+                ])->save();
+                return $this->errorResponse(-31008, 'Transaction expired', 'transaction');
+            }
+
+            return [
+                'create_time' => $existingTx->created_at->getTimestampMs(),
+                'transaction' => (string) $existingTx->id,
+                'state' => $existingTx->state,
+            ];
         }
 
-        return (int) $registration->olympiad->price;
-    }
+        if ($registration->payment_status === 'paid') {
+            return $this->errorResponse(-31008, 'Order already paid', 'order');
+        }
 
-    private function findPaymentByTransactionId(string $transactionId): ?Payment
-    {
-        return Payment::query()
-            ->with('registration')
-            ->where('transaction_id', $transactionId)
-            ->where('payment_system', 'payme')
+        $activeTx = PaymeTransaction::where('state', PaymeTransaction::STATE_CREATED)
+            ->whereHas('payment', fn ($q) => $q->where('registration_id', $registrationId))
             ->first();
+
+        if ($activeTx !== null && $activeTx->payme_id !== $paymeId) {
+            if ($this->isExpired($activeTx)) {
+                $activeTx->forceFill(['state' => PaymeTransaction::STATE_CANCELLED])->save();
+            } else {
+                return $this->errorResponse(-31008, 'Another active transaction exists', 'transaction');
+            }
+        }
+
+        return DB::transaction(function () use ($registration, $paymeId, $time, $amount, $account) {
+            $payment = $this->paymentService->createForRegistration($registration);
+            $this->paymentService->setSystem($registration, 'payme');
+
+            $tx = PaymeTransaction::create([
+                'payment_id' => $payment->id,
+                'payme_id' => $paymeId,
+                'state' => PaymeTransaction::STATE_CREATED,
+                'amount' => $amount,
+                'time' => $time,
+                'account' => $account,
+            ]);
+
+            return [
+                'create_time' => $tx->created_at->getTimestampMs(),
+                'transaction' => (string) $tx->id,
+                'state' => $tx->state,
+            ];
+        });
     }
 
-    private function buildTransactionPayload(Payment $payment): array
+    private function performTransaction(array $params): array
     {
-        $state = match ($payment->status) {
-            'success' => self::STATE_COMPLETED,
-            'failed' => self::STATE_CANCELLED,
-            default => self::STATE_CREATED,
-        };
+        $paymeId = $params['id'] ?? null;
+
+        $tx = PaymeTransaction::where('payme_id', $paymeId)->first();
+
+        if ($tx === null) {
+            return $this->errorResponse(-31003, 'Transaction not found', 'transaction');
+        }
+
+        if ($tx->state === PaymeTransaction::STATE_COMPLETED) {
+            return [
+                'transaction' => (string) $tx->id,
+                'perform_time' => $tx->updated_at->getTimestampMs(),
+                'state' => $tx->state,
+            ];
+        }
+
+        if ($tx->state !== PaymeTransaction::STATE_CREATED) {
+            return $this->errorResponse(-31008, 'Unable to perform operation', 'transaction');
+        }
+
+        if ($this->isExpired($tx)) {
+            $tx->forceFill(['state' => PaymeTransaction::STATE_CANCELLED])->save();
+            return $this->errorResponse(-31008, 'Transaction expired', 'transaction');
+        }
+
+        return DB::transaction(function () use ($tx) {
+            $tx->forceFill(['state' => PaymeTransaction::STATE_COMPLETED])->save();
+
+            $payment = $tx->payment;
+            $payment->forceFill([
+                'status' => 'success',
+                'transaction_id' => $tx->payme_id,
+                'paid_at' => now(),
+            ])->save();
+
+            $registration = $payment->registration;
+            $registration->forceFill(['payment_status' => 'paid'])->save();
+
+            try {
+                $this->ticketService->createTicket($registration->id);
+                $this->notificationService->sendPaymentSuccess($registration->fresh(['user', 'olympiad']));
+            } catch (\Throwable $e) {
+                Log::error('Post-payment processing failed (Payme)', ['error' => $e->getMessage()]);
+            }
+
+            return [
+                'transaction' => (string) $tx->id,
+                'perform_time' => $tx->updated_at->getTimestampMs(),
+                'state' => $tx->state,
+            ];
+        });
+    }
+
+    private function cancelTransaction(array $params): array
+    {
+        $paymeId = $params['id'] ?? null;
+        $reason = $params['reason'] ?? null;
+
+        $tx = PaymeTransaction::where('payme_id', $paymeId)->first();
+
+        if ($tx === null) {
+            return $this->errorResponse(-31003, 'Transaction not found', 'transaction');
+        }
+
+        if ($tx->state === PaymeTransaction::STATE_COMPLETED) {
+            // -31007: order fulfilled, cannot cancel
+            return $this->errorResponse(-31007, 'Unable to cancel. Order fulfilled.', 'transaction');
+        }
+
+        if (in_array($tx->state, [PaymeTransaction::STATE_CANCELLED, PaymeTransaction::STATE_CANCELLED_AFTER_COMPLETE], true)) {
+            return [
+                'transaction' => (string) $tx->id,
+                'cancel_time' => $tx->updated_at->getTimestampMs(),
+                'state' => $tx->state,
+            ];
+        }
+
+        return DB::transaction(function () use ($tx, $reason) {
+            $newState = $tx->state === PaymeTransaction::STATE_COMPLETED
+                ? PaymeTransaction::STATE_CANCELLED_AFTER_COMPLETE
+                : PaymeTransaction::STATE_CANCELLED;
+
+            $tx->forceFill(['state' => $newState])->save();
+
+            $payment = $tx->payment;
+            $payment->forceFill(['status' => 'failed'])->save();
+            $payment->registration->forceFill(['payment_status' => 'failed'])->save();
+
+            return [
+                'transaction' => (string) $tx->id,
+                'cancel_time' => $tx->updated_at->getTimestampMs(),
+                'state' => $tx->state,
+            ];
+        });
+    }
+
+    private function checkTransaction(array $params): array
+    {
+        $paymeId = $params['id'] ?? null;
+
+        $tx = PaymeTransaction::where('payme_id', $paymeId)->first();
+
+        if ($tx === null) {
+            return $this->errorResponse(-31003, 'Transaction not found', 'transaction');
+        }
 
         return [
-            'create_time' => $this->toMilliseconds($payment->created_at),
-            'perform_time' => $this->toMilliseconds($payment->paid_at),
-            'cancel_time' => $payment->status === 'failed' ? $this->toMilliseconds($payment->updated_at) : 0,
-            'transaction' => (string) $payment->id,
-            'state' => $state,
-            'reason' => $payment->status === 'failed' ? 5 : null,
+            'create_time' => $tx->created_at->getTimestampMs(),
+            'perform_time' => $tx->state === PaymeTransaction::STATE_COMPLETED ? $tx->updated_at->getTimestampMs() : 0,
+            'cancel_time' => in_array($tx->state, [PaymeTransaction::STATE_CANCELLED, PaymeTransaction::STATE_CANCELLED_AFTER_COMPLETE], true) ? $tx->updated_at->getTimestampMs() : 0,
+            'transaction' => (string) $tx->id,
+            'state' => $tx->state,
+            'reason' => null,
         ];
     }
 
-    private function toMilliseconds(Carbon|string|null $value): int
+    private function authenticate(Request $request): bool
     {
-        if ($value === null) {
-            return 0;
+        $authHeader = $request->header('Authorization', '');
+
+        if (! str_starts_with($authHeader, 'Basic ')) {
+            return false;
         }
 
-        $carbon = $value instanceof Carbon ? $value : Carbon::parse($value);
+        $decoded = base64_decode(substr($authHeader, 6));
+        $parts = explode(':', $decoded, 2);
 
-        return (int) $carbon->valueOf();
+        if (count($parts) !== 2) {
+            return false;
+        }
+
+        $login = $parts[0];
+        $password = $parts[1];
+
+        return $login === 'Paycom' && $password === config('services.payme.key');
     }
 
-    private function timestampToCarbon(mixed $value): Carbon
+    private function isExpired(PaymeTransaction $tx): bool
     {
-        if ($value === null || $value === '') {
-            return now();
-        }
+        return $tx->created_at->diffInMilliseconds(now()) > self::TIMEOUT_MS;
+    }
 
-        return Carbon::createFromTimestampMs((int) $value);
+    private function errorResponse(int $code, string $message, string $data = ''): array
+    {
+        return [
+            'error' => [
+                'code' => $code,
+                'message' => [
+                    'ru' => $message,
+                    'uz' => $message,
+                    'en' => $message,
+                ],
+                'data' => $data,
+            ],
+        ];
     }
 }

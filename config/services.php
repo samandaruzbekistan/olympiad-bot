@@ -42,4 +42,10 @@ return [
         'base_url' => env('CLICK_BASE_URL', 'https://my.click.uz/services/pay'),
     ],
 
+    'payme' => [
+        'merchant_id' => env('PAYME_MERCHANT_ID'),
+        'key' => env('PAYME_KEY'),
+        'checkout_url' => env('PAYME_CHECKOUT_URL', 'https://checkout.paycom.uz'),
+    ],
+
 ];

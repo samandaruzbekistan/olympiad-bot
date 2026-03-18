@@ -20,7 +20,6 @@ class OlympiadHandler
 
     public function showOlympiads(int|string $chatId, int|string $telegramId): void
     {
-        // Reply keyboardni olib tashlaymiz
         $this->telegram->sendMessage($chatId, "🏆 Mavjud olimpiadalar:", ['remove_keyboard' => true]);
 
         $olympiads = Olympiad::where('status', 'active')
@@ -86,7 +85,7 @@ class OlympiadHandler
         $date = $olympiad->start_date?->format('Y-m-d H:i') ?? '—';
         $text .= "📅 Sana: {$date}\n";
         $text .= "📍 Manzil: " . ($olympiad->location_name ?? '—') . "\n";
-        $text .= "💰 Narxi: " . number_format((int) $olympiad->price, 0, '.', ' ') . " so‘m";
+        $text .= "💰 Narxi: " . number_format((int) $olympiad->price, 0, '.', ' ') . " so'm";
 
         $keyboard = [
             'inline_keyboard' => [
@@ -103,7 +102,6 @@ class OlympiadHandler
 
         if ($logoUrl !== null) {
             $this->telegram->sendPhoto($chatId, $logoUrl, $text . "\n\n");
-            // Inline tugmalarni alohida xabar bilan yuboramiz
             $this->telegram->sendMessage($chatId, "Quyidagi tugmalardan foydalaning:", $keyboard);
         } else {
             $this->telegram->sendMessage($chatId, $text, $keyboard);
@@ -124,7 +122,6 @@ class OlympiadHandler
         $user = User::where('telegram_id', $telegramId)->first();
         if ($user === null) {
             $this->telegram->sendMessage($chatId, "❌ Avval ro'yxatdan o'ting.");
-
             return;
         }
 
@@ -133,7 +130,6 @@ class OlympiadHandler
 
         if ($olympiad === null) {
             $this->telegram->sendMessage($chatId, "❌ Olimpiada topilmadi.");
-
             return;
         }
 
@@ -148,77 +144,34 @@ class OlympiadHandler
             ],
         );
 
-        // Registratsiya yaratilganda bir martalik payment yozuvini ham yaratamiz (yoki mavjudini olamiz)
+        if ($registration->payment_status === 'paid') {
+            $this->telegram->editMessageText(
+                $chatId,
+                (int) $messageId,
+                "✅ Siz allaqachon ushbu olimpiadaga to'lov qilgansiz.",
+                [['text' => '⬅️ Bosh menu', 'callback_data' => 'main_menu']],
+            );
+            return;
+        }
+
         $this->paymentService->createForRegistration($registration);
 
-        // To'lov havolalari
         $clickUrl = $this->clickPayments->generatePaymentLink($registration);
         $paymeUrl = $this->paymePayments->generatePaymentLink($registration);
 
+        $price = number_format((int) $olympiad->price, 0, '.', ' ');
+
         $rows = [
-            [
-                [
-                    'text' => 'Click',
-                    'url' => $clickUrl,
-                ],
-                [
-                    'text' => 'Payme',
-                    'url' => $paymeUrl,
-                ],
-            ],
-            [
-                ['text' => '❌ Bekor qilish', 'callback_data' => 'main_menu'],
-            ],
+            [['text' => '💳 Click', 'url' => $clickUrl]],
+            [['text' => '💳 Payme', 'url' => $paymeUrl]],
+            [['text' => '⬅️ Bosh menu', 'callback_data' => 'main_menu']],
         ];
 
-        // Eski olimpiada tafsilotlari xabarini edit qilib, to'lov tanlashni ko'rsatamiz
         $this->telegram->editMessageText(
             $chatId,
             (int) $messageId,
-            "💳 To‘lov turini tanlang:",
+            "💳 To'lov turini tanlang:\n\n🏆 {$olympiad->title}\n💰 Narxi: {$price} so'm",
             $rows,
-        );
-    }
-
-    public function handlePaymentCallback(array $callback): void
-    {
-        $data = $callback['data'] ?? null;
-        $chatId = $callback['message']['chat']['id'] ?? null;
-        $telegramId = $callback['from']['id'] ?? null;
-
-        if ($chatId === null || $telegramId === null || ! is_string($data)) {
-            return;
-        }
-
-        $registrationId = (int) preg_replace('/\D+/', '', $data);
-        $registration = Registration::with('olympiad')->find($registrationId);
-        if ($registration === null) {
-            $this->telegram->sendMessage($chatId, "❌ Ro'yxatdan o'tish topilmadi.");
-
-            return;
-        }
-
-        if (str_starts_with($data, 'payment_click_')) {
-            $url = $this->clickPayments->generatePaymentLink($registration);
-        } else {
-            $url = $this->paymePayments->generatePaymentLink($registration);
-        }
-
-        $keyboard = [
-            'inline_keyboard' => [
-                [
-                    ['text' => 'To‘lov qilish', 'url' => $url],
-                ],
-                [
-                    ['text' => '⬅️ Bosh menu', 'callback_data' => 'main_menu'],
-                ],
-            ],
-        ];
-
-        $this->telegram->sendMessage(
-            $chatId,
-            "To‘lov qilish uchun quyidagi havoladan foydalaning:",
-            $keyboard,
         );
     }
 
@@ -228,17 +181,13 @@ class OlympiadHandler
             return null;
         }
 
-        // Lokal rivojlantirishda (APP_URL = http://127.0.0.1 yoki http://localhost)
-        // Telegram URL orqali rasmga kira olmaydi, shuning uchun faylni bevosita yuklaymiz.
         $base = (string) Config::get('app.url', URL::to('/'));
         if (str_contains($base, '127.0.0.1') || str_contains($base, 'localhost')) {
             return storage_path('app/public/' . ltrim($path, '/'));
         }
 
-        // Productionda esa to'liq URL dan foydalanamiz.
         $base = rtrim($base, '/');
 
         return $base . '/storage/' . ltrim($path, '/');
     }
 }
-

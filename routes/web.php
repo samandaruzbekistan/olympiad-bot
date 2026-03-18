@@ -3,7 +3,6 @@
 use App\Http\Controllers\Admin\AdminAuthController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\OlympiadController;
-use App\Http\Controllers\Admin\PaymentController;
 use App\Http\Controllers\Admin\RegistrationController;
 use App\Http\Controllers\Admin\SubjectController;
 use App\Http\Controllers\TelegramWebhookController;
@@ -31,6 +30,5 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::get('/olympiads/create', [OlympiadController::class, 'create'])->name('olympiads.create');
         Route::post('/olympiads', [OlympiadController::class, 'store'])->name('olympiads.store');
         Route::get('/registrations', [RegistrationController::class, 'index'])->name('registrations.index');
-        Route::get('/payments', [PaymentController::class, 'index'])->name('payments.index');
     });
 });

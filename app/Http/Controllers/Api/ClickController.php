@@ -3,19 +3,19 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Services\PaymePaymentService;
+use App\Services\ClickPaymentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-class PaymeController extends Controller
+class ClickController extends Controller
 {
     public function __construct(
-        private readonly PaymePaymentService $paymeService,
+        private readonly ClickPaymentService $clickService,
     ) {}
 
     public function handle(Request $request): JsonResponse
     {
-        $result = $this->paymeService->handleRequest($request);
+        $result = $this->clickService->handleRequest($request);
 
         return response()->json($result);
     }
