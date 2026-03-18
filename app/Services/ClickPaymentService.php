@@ -58,9 +58,22 @@ class ClickPaymentService
         ]);
 
         $payload = $this->normalizePayload($request);
+        
 
-        if (!in_array($payload['action'], [self::ACTION_PREPARE, self::ACTION_COMPLETE], true)) {
-            return $this->errorResponse($payload, self::ERROR_ACTION_NOT_FOUND, 'Unsupported action.');
+        if (! $this->verifySignature($payload)) {
+            return $this->errorResponse(
+                $payload,
+                self::ERROR_SIGN_CHECK_FAILED,
+                'Invalid signature.',
+            );
+        }
+
+        if (! in_array($payload['action'], [self::ACTION_PREPARE, self::ACTION_COMPLETE], true)) {
+            return $this->errorResponse(
+                $payload,
+                self::ERROR_ACTION_NOT_FOUND,
+                'Unsupported action.',
+            );
         }
 
         return match ($payload['action']) {
@@ -68,7 +81,6 @@ class ClickPaymentService
             self::ACTION_COMPLETE => $this->handleComplete($payload),
         };
     }
-
 
     public function verifySignature(array $params): bool
     {
@@ -87,61 +99,95 @@ class ClickPaymentService
 
     private function handlePrepare(array $payload): array
     {
-        // ✅ Signature shu yerda
-        if (!$this->verifySignature($payload)) {
-            return $this->errorResponse($payload, self::ERROR_SIGN_CHECK_FAILED, 'Invalid signature.');
-        }
+        $registration = Registration::query()->find($payload['merchant_trans_id']);
 
-        $registration = Registration::find($payload['merchant_trans_id']);
-
-        if (!$registration) {
+        if ($registration === null) {
             return $this->errorResponse($payload, self::ERROR_USER_NOT_EXIST, 'Registration not found.');
         }
 
-        $payment = Payment::where('registration_id', $registration->id)
+        $payment = Payment::query()
+            ->where('registration_id', $registration->id)
             ->latest('id')
             ->first();
 
-        if (!$payment) {
-            return $this->errorResponse($payload, self::ERROR_TRANSACTION_NOT_EXIST, 'Payment not found.');
+        if ($payment === null) {
+            return $this->errorResponse($payload, self::ERROR_TRANSACTION_NOT_EXIST, 'Payment record not found.');
         }
 
-        if ((string)$payment->amount !== (string)$payload['amount']) {
+        if ($payment->amount != $payload['amount']) {
             return $this->errorResponse($payload, self::ERROR_INCORRECT_AMOUNT, 'Amount mismatch.');
         }
 
-        // ❗ HECH QACHON ALREADY PAID YO‘Q
+        // if ($payment->status === 'success' || $registration->payment_status === 'paid') {
+        //     return $this->errorResponse($payload, self::ERROR_ALREADY_PAID, 'Payment already completed.');
+        // }
 
-        $payment->update([
+        $payment->forceFill([
             'transaction_id' => $payload['click_trans_id'],
             'status' => 'pending',
-        ]);
+        ])->save();
 
         return $this->successResponse($payload, $payment->id);
     }
 
-
     private function handleComplete(array $payload): array
     {
-        // 🔥 1. PAYMENTNI TOPISH (ENG MUHIM)
-        $payment = Payment::where('transaction_id', $payload['click_trans_id'])
-            ->where('payment_system', 'click')
-            ->first();
+        if ((int) $payload['error'] < 0) {
+            $payment = Payment::query()
+                ->where('registration_id', $payload['merchant_trans_id'])
+                // ->where('payment_system', 'click')
+                ->latest('id')
+                ->first();
 
+            if ($payment !== null && $payment->status !== 'success') {
+                $payment->forceFill([
+                    'transaction_id' => $payload['click_trans_id'],
+                    'status' => 'failed',
+                ])->save();
+            }
 
-        // ❗ TRANSACTION YO‘Q → -6
-        if (!$payment) {
+            if ($payment->status === "success") {
+                return $this->errorResponse(
+                    $payload,
+                    self::ERROR_ALREADY_PAID,
+                    'Payment already completed.',
+                );
+            }
+
             return $this->errorResponse(
                 $payload,
-                self::ERROR_TRANSACTION_NOT_EXIST,
-                'Payment not found.'
+                self::ERROR_TRANSACTION_CANCELLED,
+                $payload['error_note'] ?: 'Transaction cancelled.',
             );
         }
 
-        $registration = $payment->registration;
+        $payment = Payment::query()
+            ->where('transaction_id', $payload['click_trans_id'])
+            ->where('payment_system', 'click')
+            ->latest('id')
+            ->first();
 
-        // 🔥 2. ALREADY PAID → HAR DOIM BIRINCHI
-        if ($payment->status === 'success' || $registration?->payment_status === 'paid') {
+        if ($payment === null) {
+            $payment = Payment::query()
+                ->where('registration_id', $payload['merchant_trans_id'])
+                ->latest('id')
+                ->first();
+        }
+
+        if ($payment === null) {
+            return $this->errorResponse($payload, self::ERROR_TRANSACTION_NOT_EXIST, 'Payment record not found.');
+        }
+
+        $registration = $payment->registration;
+        if ($registration === null) {
+            return $this->errorResponse($payload, self::ERROR_USER_NOT_EXIST, 'Registration not found.');
+        }
+
+        if ($payment->amount != $payload['amount']) {
+            return $this->errorResponse($payload, self::ERROR_INCORRECT_AMOUNT, 'Amount mismatch.');
+        }
+
+        if ($payment->status === 'success' || $registration->payment_status === 'paid') {
             return $this->errorResponse(
                 $payload,
                 self::ERROR_ALREADY_PAID,
@@ -149,68 +195,32 @@ class ClickPaymentService
             );
         }
 
-        // 🔥 3. SIGNATURE ENDI
-        if (!$this->verifySignature($payload)) {
-            return $this->errorResponse(
-                $payload,
-                self::ERROR_SIGN_CHECK_FAILED,
-                'Invalid signature.'
-            );
-        }
-
-        // 🔥 4. CANCEL
-        if ((int)$payload['error'] < 0) {
-            $payment->update([
-                'status' => 'failed',
-                'transaction_id' => $payload['click_trans_id'],
-            ]);
-
-            return $this->errorResponse(
-                $payload,
-                self::ERROR_TRANSACTION_CANCELLED,
-                'Transaction cancelled.'
-            );
-        }
-
-        // 🔥 5. AMOUNT CHECK
-        if ((string)$payment->amount !== (string)$payload['amount']) {
-            return $this->errorResponse(
-                $payload,
-                self::ERROR_INCORRECT_AMOUNT,
-                'Amount mismatch.'
-            );
-        }
-
-        // 🔥 6. SUCCESS FLOW
         try {
-            DB::transaction(function () use ($payment, $registration, $payload) {
-                $payment->update([
-                    'status' => 'success',
+            DB::transaction(function () use ($payment, $registration, $payload): void {
+                $payment->forceFill([
                     'transaction_id' => $payload['click_trans_id'],
+                    'status' => 'success',
                     'paid_at' => now(),
-                ]);
+                ])->save();
 
-                $registration->update([
+                $registration->forceFill([
                     'payment_status' => 'paid',
-                ]);
+                ])->save();
 
                 $this->ticketService->createTicket($registration->id);
             });
-        } catch (\Throwable $e) {
-            Log::error('Click COMPLETE failed', [
-                'error' => $e->getMessage()
+        } catch (\Throwable $exception) {
+            Log::error('Click callback processing failed', [
+                'payload' => $payload,
+                'payment_id' => $payment->id,
+                'exception' => $exception->getMessage(),
             ]);
 
-            return $this->errorResponse(
-                $payload,
-                self::ERROR_UPDATE_FAILED,
-                'Update failed.'
-            );
+            return $this->errorResponse($payload, self::ERROR_UPDATE_FAILED, 'Failed to update payment.');
         }
 
         return $this->successResponse($payload, $payment->id, $payment->id);
     }
-
 
     private function normalizePayload(Request $request): array
     {
