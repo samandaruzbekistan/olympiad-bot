@@ -121,14 +121,25 @@ class RegistrationHandler
                 return true;
             }
             $this->sessions->setData($telegramId, 'grade', $grade);
-            $this->sessions->setState($telegramId, self::STATE_WAITING_SUBJECTS);
-            $this->sessions->setData($telegramId, 'subject_ids', []);
 
-            $subjects = Subject::orderBy('name')->get();
-            $selected = [];
-            $rows = $this->buildSubjectRows($subjects, $selected);
-            $text = $this->buildSubjectMessageText($subjects, $selected);
-            $this->safeEditMessageText($chatId, $messageId, $text, $rows);
+            $allData = $this->sessions->getData($telegramId);
+
+            $user = User::updateOrCreate(
+                ['telegram_id' => $telegramId],
+                [
+                    'phone' => $allData['phone'] ?? '',
+                    'first_name' => $allData['first_name'] ?? '',
+                    'last_name' => $allData['last_name'] ?? '',
+                    'region_id' => $allData['region_id'] ?? null,
+                    'district_id' => $allData['district_id'] ?? null,
+                    'school' => $allData['school'] ?? null,
+                    'grade' => $grade,
+                ]
+            );
+
+            $this->sessions->clear($telegramId);
+            $this->safeEditMessageText($chatId, $messageId, "✅ Ro'yxatdan o'tdingiz!", []);
+            $this->showMainMenu($chatId);
             return true;
         }
 
