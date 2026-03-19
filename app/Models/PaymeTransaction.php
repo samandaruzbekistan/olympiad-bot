@@ -21,6 +21,9 @@ class PaymeTransaction extends Model
         'state',
         'amount',
         'time',
+        'perform_time',
+        'cancel_time',
+        'reason',
         'account',
     ];
 
@@ -28,11 +31,27 @@ class PaymeTransaction extends Model
         'amount' => 'decimal:2',
         'state' => 'integer',
         'time' => 'integer',
+        'perform_time' => 'integer',
+        'cancel_time' => 'integer',
+        'reason' => 'integer',
         'account' => 'array',
     ];
 
     public function payment(): BelongsTo
     {
         return $this->belongsTo(Payment::class);
+    }
+
+    public function isExpired(): bool
+    {
+        $timeout = 43_200_000; // 12 hours in ms
+
+        return $this->state === self::STATE_CREATED
+            && (now()->getTimestampMs() - $this->time) > $timeout;
+    }
+
+    public function isCancelled(): bool
+    {
+        return in_array($this->state, [self::STATE_CANCELLED, self::STATE_CANCELLED_AFTER_COMPLETE], true);
     }
 }

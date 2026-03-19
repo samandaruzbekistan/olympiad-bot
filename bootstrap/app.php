@@ -19,7 +19,13 @@ return Application::configure(basePath: dirname(__DIR__))
             }
             return url('/login');
         });
+
+        $middleware->api(prepend: [
+            \App\Http\Middleware\ForceJsonResponse::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        $exceptions->shouldRenderJsonWhen(function (Request $request) {
+            return $request->is('api/*');
+        });
     })->create();
