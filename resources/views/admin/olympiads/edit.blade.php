@@ -77,7 +77,7 @@
             @error('location_name')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
         </div>
         <div>
-            <label for="location_address" class="block text-base font-medium text-slate-700">Manzil</label>
+            <label for="location_address" class="block text-base font-medium text-slate-700">Mo'ljal</label>
             <input type="text" name="location_address" id="location_address" value="{{ old('location_address', $olympiad->location_address) }}"
                    class="admin-input mt-2">
             @error('location_address')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
