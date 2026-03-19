@@ -5,4 +5,4 @@ use App\Http\Controllers\Api\PaymeController;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/click', [ClickController::class, 'handle']);
-Route::post('/payme', [PaymeController::class, 'handle']);
+Route::post('/payment/payme', [PaymeController::class, 'handle']);

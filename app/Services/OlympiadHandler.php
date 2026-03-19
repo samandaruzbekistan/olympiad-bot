@@ -5,9 +5,7 @@ namespace App\Services;
 use App\Models\Olympiad;
 use App\Models\Registration;
 use App\Models\User;
-use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\URL;
 
 class OlympiadHandler
 {
@@ -114,11 +112,16 @@ class OlympiadHandler
             ];
         }
 
-        $logoUrl = $this->buildLogoUrl($olympiad->logo);
+        $logoPath = $this->resolveLogoPath($olympiad->logo);
 
-        if ($logoUrl !== null) {
-            $this->telegram->sendPhoto($chatId, $logoUrl, $text . "\n\n");
-            $this->telegram->sendMessage($chatId, "Quyidagi tugmalardan foydalaning:", $keyboard);
+        if ($logoPath !== null) {
+            try {
+                $this->telegram->sendPhoto($chatId, $logoPath, $text);
+                $this->telegram->sendMessage($chatId, "Quyidagi tugmalardan foydalaning:", $keyboard);
+            } catch (\Throwable $e) {
+                Log::warning('Failed to send olympiad logo', ['error' => $e->getMessage()]);
+                $this->telegram->sendMessage($chatId, $text, $keyboard);
+            }
         } else {
             $this->telegram->sendMessage($chatId, $text, $keyboard);
         }
@@ -262,19 +265,14 @@ class OlympiadHandler
         }
     }
 
-    private function buildLogoUrl(?string $path): ?string
+    private function resolveLogoPath(?string $path): ?string
     {
         if (! $path) {
             return null;
         }
 
-        $base = (string) Config::get('app.url', URL::to('/'));
-        if (str_contains($base, '127.0.0.1') || str_contains($base, 'localhost')) {
-            return storage_path('app/public/' . ltrim($path, '/'));
-        }
+        $localPath = storage_path('app/public/' . ltrim($path, '/'));
 
-        $base = rtrim($base, '/');
-
-        return $base . '/storage/' . ltrim($path, '/');
+        return is_file($localPath) ? $localPath : null;
     }
 }
