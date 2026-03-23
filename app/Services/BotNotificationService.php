@@ -50,6 +50,50 @@ class BotNotificationService
                 (float) $olympiad->longitude,
             );
         }
+
+        $this->sendMainMenu($user->telegram_id);
+    }
+
+    public function sendPaymentCancelled(Registration $registration): void
+    {
+        $registration->loadMissing(['user', 'olympiad']);
+
+        $user = $registration->user;
+        $olympiad = $registration->olympiad;
+
+        if ($user === null) {
+            return;
+        }
+
+        $title = $olympiad?->title ?? "Olimpiada";
+
+        $this->telegramService->sendMessage(
+            $user->telegram_id,
+            "❌ <b>To'lov bekor qilindi</b>\n\n"
+                . "🏆 {$title}\n\n"
+                . "To'lov tizimidan to'lov bekor qilindi. "
+                . "Qayta ishtirok etish uchun olimpiadani tanlang.",
+        );
+
+        $this->sendMainMenu($user->telegram_id);
+    }
+
+    private function sendMainMenu(string|int $chatId): void
+    {
+        $keyboard = [
+            'keyboard' => [
+                [
+                    ['text' => '🏆 Olimpiadalar'],
+                    ['text' => '💳 To\'lovlarim'],
+                ],
+                [
+                    ['text' => '👤 Profil'],
+                    ['text' => 'ℹ️ Tashkilot haqida'],
+                ],
+            ],
+            'resize_keyboard' => true,
+        ];
+        $this->telegramService->sendMessage($chatId, "Asosiy menyu:", $keyboard);
     }
 
     private function sendTicketImage(Registration $registration, string|int $chatId, string $caption): void

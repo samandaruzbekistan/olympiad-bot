@@ -72,6 +72,14 @@ class BotManager
             return;
         }
 
+        if (is_string($data) && str_starts_with($data, 'otype_')) {
+            $this->olympiadHandler->showOlympiadsByType($callback);
+            if ($callbackId !== null) {
+                $this->telegram->answerCallback($callbackId);
+            }
+            return;
+        }
+
         if (is_string($data) && str_starts_with($data, 'olympiad_')) {
             $this->olympiadHandler->showOlympiadDetails($callback);
             if ($callbackId !== null) {
@@ -106,6 +114,18 @@ class BotManager
                     $page = (int) substr($data, strlen('payments_page_'));
                     $this->showUserPayments($chatId, $user, $page, $messageId);
                 }
+            }
+            if ($callbackId !== null) {
+                $this->telegram->answerCallback($callbackId);
+            }
+            return;
+        }
+
+        if ($data === 'back_to_types') {
+            $chatId = $callback['message']['chat']['id'] ?? null;
+            $telegramId = $callback['from']['id'] ?? null;
+            if ($chatId !== null && $telegramId !== null) {
+                $this->olympiadHandler->showOlympiads($chatId, $telegramId);
             }
             if ($callbackId !== null) {
                 $this->telegram->answerCallback($callbackId);
@@ -201,7 +221,21 @@ class BotManager
                 return;
             }
             if ($text === 'ℹ️ Tashkilot haqida') {
-                $this->telegram->sendMessage($chatId, "ℹ️ Tashkilot haqida ma'lumot. Tez orada bu yerda batafsil ma'lumot bo'ladi.");
+                $pdfPath = public_path('Regulation_NEMO.pdf');
+                if (is_file($pdfPath)) {
+                    try {
+                        $this->telegram->sendDocument(
+                            $chatId,
+                            $pdfPath,
+                            "ℹ️ <b>Tashkilot haqida</b>\n\nQuyidagi hujjatda tashkilot to'g'risida batafsil ma'lumot berilgan.",
+                        );
+                    } catch (\Throwable $e) {
+                        \Illuminate\Support\Facades\Log::warning('Failed to send regulation PDF', ['error' => $e->getMessage()]);
+                        $this->telegram->sendMessage($chatId, "ℹ️ Hujjatni yuborishda xatolik yuz berdi. Iltimos, qayta urinib ko'ring.");
+                    }
+                } else {
+                    $this->telegram->sendMessage($chatId, "ℹ️ Hujjat hozircha mavjud emas.");
+                }
                 return;
             }
         }

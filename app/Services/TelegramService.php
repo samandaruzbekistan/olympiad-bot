@@ -59,6 +59,7 @@ class TelegramService
 
         if ($caption !== null) {
             $payload['caption'] = $caption;
+            $payload['parse_mode'] = 'HTML';
         }
 
         if ($this->shouldUploadFile($photo)) {
@@ -119,6 +120,24 @@ class TelegramService
         return $this->client()
             ->attach('video', fopen($path, 'r'), $name)
             ->post('sendVideo', $payload)
+            ->throw();
+    }
+
+    public function sendDocument(
+        string|int $chatId,
+        string $filePath,
+        ?string $caption = null,
+    ): Response {
+        $payload = ['chat_id' => $chatId];
+
+        if ($caption !== null) {
+            $payload['caption'] = $caption;
+            $payload['parse_mode'] = 'HTML';
+        }
+
+        return $this->client()
+            ->attach('document', fopen($filePath, 'r'), basename($filePath))
+            ->post('sendDocument', $payload)
             ->throw();
     }
 

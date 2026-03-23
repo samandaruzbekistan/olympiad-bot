@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\AdminAuthController;
 use App\Http\Controllers\Admin\BroadcastController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\OlympiadController;
+use App\Http\Controllers\Admin\OlympiadTypeController;
 use App\Http\Controllers\Admin\PaymentController;
 use App\Http\Controllers\Admin\RegistrationController;
 use App\Http\Controllers\Admin\StatisticsController;
@@ -36,6 +37,13 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::put('/subjects/{subject}', [SubjectController::class, 'update'])->name('subjects.update');
         Route::delete('/subjects/{subject}', [SubjectController::class, 'destroy'])->name('subjects.destroy');
 
+        Route::get('/olympiad-types', [OlympiadTypeController::class, 'index'])->name('olympiad-types.index');
+        Route::get('/olympiad-types/create', [OlympiadTypeController::class, 'create'])->name('olympiad-types.create');
+        Route::post('/olympiad-types', [OlympiadTypeController::class, 'store'])->name('olympiad-types.store');
+        Route::get('/olympiad-types/{olympiadType}/edit', [OlympiadTypeController::class, 'edit'])->name('olympiad-types.edit');
+        Route::put('/olympiad-types/{olympiadType}', [OlympiadTypeController::class, 'update'])->name('olympiad-types.update');
+        Route::delete('/olympiad-types/{olympiadType}', [OlympiadTypeController::class, 'destroy'])->name('olympiad-types.destroy');
+
         Route::get('/olympiads', [OlympiadController::class, 'index'])->name('olympiads.index');
         Route::get('/olympiads/create', [OlympiadController::class, 'create'])->name('olympiads.create');
         Route::post('/olympiads', [OlympiadController::class, 'store'])->name('olympiads.store');
@@ -44,6 +52,7 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::delete('/olympiads/{olympiad}', [OlympiadController::class, 'destroy'])->name('olympiads.destroy');
 
         Route::get('/registrations', [RegistrationController::class, 'index'])->name('registrations.index');
+        Route::get('/registrations/export', [RegistrationController::class, 'export'])->name('registrations.export');
         Route::get('/users', [UserController::class, 'index'])->name('users.index');
         Route::get('/users/export', [UserController::class, 'export'])->name('users.export');
         Route::get('/users/districts', [UserController::class, 'districts'])->name('users.districts');

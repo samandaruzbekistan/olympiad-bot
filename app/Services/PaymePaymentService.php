@@ -232,27 +232,36 @@ class PaymePaymentService
             return $this->cancelResponse($tx);
         }
 
-        return DB::transaction(function () use ($tx, $reason) {
+        $registration = null;
+
+        $response = DB::transaction(function () use ($tx, $reason, &$registration) {
             $newState = $tx->state === PaymeTransaction::STATE_COMPLETED
                 ? PaymeTransaction::STATE_CANCELLED_AFTER_COMPLETE
                 : PaymeTransaction::STATE_CANCELLED;
 
-            $cancelTime = now()->getTimestampMs();
-
             $tx->forceFill([
                 'state'       => $newState,
-                'cancel_time' => $cancelTime,
+                'cancel_time' => now()->getTimestampMs(),
                 'reason'      => $reason,
             ])->save();
 
             $payment = $tx->payment;
             if ($payment !== null) {
                 $payment->forceFill(['status' => 'failed'])->save();
-                $payment->registration?->forceFill(['payment_status' => 'failed'])->save();
+                $registration = $payment->registration;
             }
 
             return $this->cancelResponse($tx);
         });
+
+        // After DB commit: notify user and delete registration
+        if ($registration !== null) {
+            $this->cancelRegistration($registration);
+        } else {
+            Log::warning('Payme CancelTransaction: registration not found for tx', ['payme_id' => $tx->payme_id]);
+        }
+
+        return $response;
     }
 
     /* ------------------------------------------------------------------ */
@@ -367,5 +376,37 @@ class PaymePaymentService
             'id'      => $id,
             'error'   => $this->error($code, $message),
         ];
+    }
+
+    private function cancelRegistration(\App\Models\Registration $registration): void
+    {
+        $registration->loadMissing(['user', 'olympiad']);
+
+        Log::info('Payme: cancelling registration', [
+            'registration_id' => $registration->id,
+            'has_user'        => $registration->user !== null,
+            'telegram_id'     => $registration->user?->telegram_id,
+        ]);
+
+        try {
+            $this->notificationService->sendPaymentCancelled($registration);
+        } catch (\Throwable $e) {
+            Log::warning('Payme: failed to send cancellation notification', [
+                'registration_id' => $registration->id,
+                'error'           => $e->getMessage(),
+            ]);
+        }
+
+        try {
+            DB::transaction(function () use ($registration) {
+                $registration->ticket()->delete();
+                $registration->delete();
+            });
+        } catch (\Throwable $e) {
+            Log::error('Payme: failed to delete cancelled registration', [
+                'registration_id' => $registration->id,
+                'error'           => $e->getMessage(),
+            ]);
+        }
     }
 }

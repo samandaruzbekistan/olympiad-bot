@@ -24,6 +24,16 @@
             @error('description')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
         </div>
         <div>
+            <label for="type_id" class="block text-base font-medium text-slate-700">Olimpiada turi</label>
+            <select name="type_id" id="type_id" class="admin-input mt-2">
+                <option value="">— Tanlanmagan —</option>
+                @foreach($types as $type)
+                    <option value="{{ $type->id }}" {{ old('type_id', $olympiad->type_id) == $type->id ? 'selected' : '' }}>{{ $type->name }}</option>
+                @endforeach
+            </select>
+            @error('type_id')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
+        </div>
+        <div>
             <label for="logo" class="block text-base font-medium text-slate-700">Logotip (ixtiyoriy)</label>
             @if($olympiad->logo)
                 <div class="mt-2 mb-2">

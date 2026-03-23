@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Olympiad;
+use App\Models\OlympiadType;
 use App\Models\Subject;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -17,6 +18,7 @@ class OlympiadController extends Controller
         return [
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
+            'type_id' => 'nullable|exists:olympiad_types,id',
             'logo' => 'nullable|image|max:2048',
             'subject_ids' => 'nullable|array',
             'subject_ids.*' => 'exists:subjects,id',
@@ -33,7 +35,7 @@ class OlympiadController extends Controller
 
     public function index(Request $request): View
     {
-        $query = Olympiad::query()->withCount('registrations')->with('subjects');
+        $query = Olympiad::query()->withCount('registrations')->with(['subjects', 'type']);
 
         if ($search = $request->query('search')) {
             $query->where('title', 'like', "%{$search}%");
@@ -51,8 +53,9 @@ class OlympiadController extends Controller
     public function create(): View
     {
         $subjects = Subject::orderBy('name')->get();
+        $types = OlympiadType::orderBy('name')->get();
 
-        return view('admin.olympiads.create', compact('subjects'));
+        return view('admin.olympiads.create', compact('subjects', 'types'));
     }
 
     public function store(Request $request): RedirectResponse
@@ -74,9 +77,10 @@ class OlympiadController extends Controller
     public function edit(Olympiad $olympiad): View
     {
         $subjects = Subject::orderBy('name')->get();
+        $types = OlympiadType::orderBy('name')->get();
         $olympiad->load('subjects');
 
-        return view('admin.olympiads.edit', compact('olympiad', 'subjects'));
+        return view('admin.olympiads.edit', compact('olympiad', 'subjects', 'types'));
     }
 
     public function update(Request $request, Olympiad $olympiad): RedirectResponse

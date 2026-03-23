@@ -23,6 +23,16 @@
             @error('description')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
         </div>
         <div>
+            <label for="type_id" class="block text-base font-medium text-slate-700">Olimpiada turi</label>
+            <select name="type_id" id="type_id" class="admin-input mt-2">
+                <option value="">— Tanlanmagan —</option>
+                @foreach($types as $type)
+                    <option value="{{ $type->id }}" {{ old('type_id') == $type->id ? 'selected' : '' }}>{{ $type->name }}</option>
+                @endforeach
+            </select>
+            @error('type_id')<p class="mt-1 text-sm text-red-600">{{ $message }}</p>@enderror
+        </div>
+        <div>
             <label for="logo" class="block text-base font-medium text-slate-700">Logotip (ixtiyoriy)</label>
             <input type="file" name="logo" id="logo" accept="image/*"
                    class="mt-2 block w-full text-sm text-slate-700 file:mr-4 file:rounded-lg file:border-0 file:bg-indigo-50 file:px-4 file:py-2 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-100">

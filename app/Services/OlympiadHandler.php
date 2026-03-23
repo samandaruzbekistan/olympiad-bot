@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Olympiad;
+use App\Models\OlympiadType;
 use App\Models\Registration;
 use App\Models\User;
 use Illuminate\Support\Facades\Log;
@@ -16,49 +17,112 @@ class OlympiadHandler
         protected PaymentService $paymentService,
         protected TicketImageService $ticketImageService,
         protected TicketService $ticketService,
+        protected RegistrationHandler $registrationHandler,
     ) {
     }
 
+    /* ------------------------------------------------------------------ */
+    /*  Step 1: Show olympiad types                                        */
+    /* ------------------------------------------------------------------ */
+
     public function showOlympiads(int|string $chatId, int|string $telegramId): void
     {
-        $this->telegram->sendMessage($chatId, "🏆 Mavjud olimpiadalar:", ['remove_keyboard' => true]);
-
-        $olympiads = Olympiad::where('status', 'active')
-            ->orderBy('start_date')
-            ->limit(10)
+        $types = OlympiadType::whereHas('olympiads', fn ($q) => $q->where('status', 'active'))
+            ->orderBy('name')
             ->get();
+
+        if ($types->isEmpty()) {
+            // Tur yo'q — barcha aktiv olimpiadalarni chiqar
+            $this->showAllOlympiads($chatId);
+            return;
+        }
+
+        $rows = [];
+        foreach ($types as $type) {
+            $rows[] = [['text' => $type->name, 'callback_data' => 'otype_' . $type->id]];
+        }
+
+        // Turi belgilanmagan olimpiadalar ham bo'lsa
+        $noTypeCount = Olympiad::where('status', 'active')->whereNull('type_id')->count();
+        if ($noTypeCount > 0) {
+            $rows[] = [['text' => '📋 Boshqa olimpiadalar', 'callback_data' => 'otype_0']];
+        }
+
+        $rows[] = [['text' => '⬅️ Bosh menu', 'callback_data' => 'main_menu']];
+
+        $this->telegram->sendMessage(
+            $chatId,
+            "🏆 <b>Olimpiada turini tanlang:</b>",
+            ['inline_keyboard' => $rows],
+        );
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Step 2: Show olympiads by selected type                           */
+    /* ------------------------------------------------------------------ */
+
+    public function showOlympiadsByType(array $callback): void
+    {
+        $data = $callback['data'] ?? null;
+        $chatId = $callback['message']['chat']['id'] ?? null;
+        $messageId = $callback['message']['message_id'] ?? null;
+
+        if ($chatId === null || ! is_string($data)) {
+            return;
+        }
+
+        $typeId = (int) substr($data, strlen('otype_'));
+
+        $query = Olympiad::where('status', 'active')->orderBy('start_date');
+
+        if ($typeId === 0) {
+            $query->whereNull('type_id');
+            $typeName = 'Boshqa olimpiadalar';
+        } else {
+            $type = OlympiadType::find($typeId);
+            if ($type === null) {
+                return;
+            }
+            $query->where('type_id', $typeId);
+            $typeName = $type->name;
+        }
+
+        $olympiads = $query->get();
 
         if ($olympiads->isEmpty()) {
             $rows = [
-                [
-                    ['text' => '⬅️ Bosh menu', 'callback_data' => 'main_menu'],
-                ],
+                [['text' => '⬅️ Turlar ro\'yxati', 'callback_data' => 'back_to_types']],
+                [['text' => '⬅️ Bosh menu', 'callback_data' => 'main_menu']],
             ];
-            $this->telegram->sendMessage($chatId, "🏆 Mavjud olimpiadalar hozircha yo'q.", ['inline_keyboard' => $rows]);
-
+            if ($messageId !== null) {
+                $this->telegram->editMessageText($chatId, $messageId, "❌ Bu turda hozircha olimpiadalar yo'q.", $rows);
+            } else {
+                $this->telegram->sendMessage($chatId, "❌ Bu turda hozircha olimpiadalar yo'q.", ['inline_keyboard' => $rows]);
+            }
             return;
         }
 
         $rows = [];
         foreach ($olympiads as $olympiad) {
-            $rows[] = [
-                [
-                    'text' => $olympiad->title,
-                    'callback_data' => 'olympiad_' . $olympiad->id,
-                ],
-            ];
+            $date = $olympiad->start_date?->format('d.m.Y') ?? '';
+            $label = $olympiad->title . ($date ? " ({$date})" : '');
+            $rows[] = [['text' => $label, 'callback_data' => 'olympiad_' . $olympiad->id]];
         }
+        $rows[] = [['text' => '⬅️ Turlar ro\'yxati', 'callback_data' => 'back_to_types']];
+        $rows[] = [['text' => '⬅️ Bosh menu', 'callback_data' => 'main_menu']];
 
-        $rows[] = [
-            ['text' => '⬅️ Bosh menu', 'callback_data' => 'main_menu'],
-        ];
+        $text = "🏆 <b>{$typeName}</b>\n\nOlimpiadani tanlang:";
 
-        $this->telegram->sendMessage(
-            $chatId,
-            "Quyidagilardan birini tanlang:",
-            ['inline_keyboard' => $rows],
-        );
+        if ($messageId !== null) {
+            $this->telegram->editMessageText($chatId, $messageId, $text, $rows);
+        } else {
+            $this->telegram->sendMessage($chatId, $text, ['inline_keyboard' => $rows]);
+        }
     }
+
+    /* ------------------------------------------------------------------ */
+    /*  Step 3: Show olympiad details                                      */
+    /* ------------------------------------------------------------------ */
 
     public function showOlympiadDetails(array $callback): void
     {
@@ -71,11 +135,10 @@ class OlympiadHandler
         }
 
         $id = (int) substr($data, strlen('olympiad_'));
-        $olympiad = Olympiad::find($id);
+        $olympiad = Olympiad::with('type')->find($id);
 
         if ($olympiad === null) {
             $this->telegram->sendMessage($chatId, "❌ Olimpiada topilmadi.");
-
             return;
         }
 
@@ -86,19 +149,27 @@ class OlympiadHandler
 
         $alreadyPaid = $registration !== null && $registration->payment_status === 'paid';
 
-        $text = "🏆 {$olympiad->title}\n\n";
+        $text = "🏆 <b>{$olympiad->title}</b>";
+        if ($olympiad->type) {
+            $text .= "  <i>[{$olympiad->type->name}]</i>";
+        }
+        $text .= "\n\n";
         if ($olympiad->description) {
             $text .= "📝 {$olympiad->description}\n\n";
         }
-        $date = $olympiad->start_date?->format('Y-m-d H:i') ?? '—';
+        $date = $olympiad->start_date?->format('d.m.Y H:i') ?? '—';
         $text .= "📅 Sana: {$date}\n";
         $text .= "📍 Manzil: " . ($olympiad->location_name ?? '—') . "\n";
+
+        $typeId = $olympiad->type_id ?? 0;
+        $backButton = ['text' => '⬅️ Olimpiadalar', 'callback_data' => 'otype_' . $typeId];
 
         if ($alreadyPaid) {
             $text .= "\n✅ <b>Siz ushbu olimpiada ishtirokchisisiz!</b>";
             $keyboard = [
                 'inline_keyboard' => [
                     [['text' => '🎫 Biletni ko\'rish', 'callback_data' => 'ticket_' . $registration->id]],
+                    [$backButton],
                     [['text' => '⬅️ Bosh menu', 'callback_data' => 'main_menu']],
                 ],
             ];
@@ -107,6 +178,7 @@ class OlympiadHandler
             $keyboard = [
                 'inline_keyboard' => [
                     [['text' => '✅ Ishtirok etish', 'callback_data' => 'participate_' . $olympiad->id]],
+                    [$backButton],
                     [['text' => '⬅️ Bosh menu', 'callback_data' => 'main_menu']],
                 ],
             ];
@@ -126,6 +198,10 @@ class OlympiadHandler
             $this->telegram->sendMessage($chatId, $text, $keyboard);
         }
     }
+
+    /* ------------------------------------------------------------------ */
+    /*  Participation (payment)                                            */
+    /* ------------------------------------------------------------------ */
 
     public function handleParticipation(array $callback): void
     {
@@ -153,14 +229,8 @@ class OlympiadHandler
         }
 
         $registration = Registration::firstOrCreate(
-            [
-                'user_id' => $user->id,
-                'olympiad_id' => $olympiad->id,
-            ],
-            [
-                'status' => 'pending',
-                'payment_status' => 'pending',
-            ],
+            ['user_id' => $user->id, 'olympiad_id' => $olympiad->id],
+            ['status' => 'pending', 'payment_status' => 'pending'],
         );
 
         if ($registration->payment_status === 'paid') {
@@ -183,19 +253,21 @@ class OlympiadHandler
 
         $price = number_format((int) $olympiad->price, 0, '.', ' ');
 
-        $rows = [
-            [['text' => '💳 Click', 'url' => $clickUrl]],
-            [['text' => '💳 Payme', 'url' => $paymeUrl]],
-            [['text' => '⬅️ Bosh menu', 'callback_data' => 'main_menu']],
-        ];
-
         $this->telegram->editMessageText(
             $chatId,
             (int) $messageId,
             "💳 To'lov turini tanlang:\n\n🏆 {$olympiad->title}\n💰 Narxi: {$price} so'm",
-            $rows,
+            [
+                [['text' => '💳 Click orqali to\'lash', 'url' => $clickUrl]],
+                [['text' => '💳 Payme orqali to\'lash', 'url' => $paymeUrl]],
+                [['text' => '⬅️ Bosh menu', 'callback_data' => 'main_menu']],
+            ],
         );
     }
+
+    /* ------------------------------------------------------------------ */
+    /*  Ticket                                                             */
+    /* ------------------------------------------------------------------ */
 
     public function handleTicketRequest(array $callback): void
     {
@@ -263,6 +335,40 @@ class OlympiadHandler
                 "🎫 Bilet: <b>{$registration->ticket_number}</b>\n\nRasm generatsiya qilishda xatolik yuz berdi.",
             );
         }
+
+        // Bilet yuborilgandan keyin bosh menyuga qaytish
+        $this->registrationHandler->showMainMenu($chatId);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Helpers                                                            */
+    /* ------------------------------------------------------------------ */
+
+    private function showAllOlympiads(int|string $chatId): void
+    {
+        $olympiads = Olympiad::where('status', 'active')
+            ->orderBy('start_date')
+            ->limit(15)
+            ->get();
+
+        if ($olympiads->isEmpty()) {
+            $this->telegram->sendMessage(
+                $chatId,
+                "🏆 Mavjud olimpiadalar hozircha yo'q.",
+                ['inline_keyboard' => [[['text' => '⬅️ Bosh menu', 'callback_data' => 'main_menu']]]],
+            );
+            return;
+        }
+
+        $rows = [];
+        foreach ($olympiads as $olympiad) {
+            $date = $olympiad->start_date?->format('d.m.Y') ?? '';
+            $label = $olympiad->title . ($date ? " ({$date})" : '');
+            $rows[] = [['text' => $label, 'callback_data' => 'olympiad_' . $olympiad->id]];
+        }
+        $rows[] = [['text' => '⬅️ Bosh menu', 'callback_data' => 'main_menu']];
+
+        $this->telegram->sendMessage($chatId, "🏆 <b>Olimpiadalar:</b>", ['inline_keyboard' => $rows]);
     }
 
     private function resolveLogoPath(?string $path): ?string

@@ -18,6 +18,7 @@ class User extends Authenticatable
         'phone',
         'first_name',
         'last_name',
+        'birth_date',
         'region_id',
         'district_id',
         'school',
@@ -26,6 +27,7 @@ class User extends Authenticatable
 
     protected $casts = [
         'telegram_id' => 'string',
+        'birth_date' => 'date',
     ];
 
     public function region(): BelongsTo

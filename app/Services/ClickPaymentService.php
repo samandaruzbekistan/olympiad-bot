@@ -138,7 +138,7 @@ class ClickPaymentService
             $payment = $registration->payment;
             if ($payment !== null && $payment->status !== 'success') {
                 $payment->forceFill(['status' => 'failed'])->save();
-                $registration->forceFill(['payment_status' => 'failed'])->save();
+                $this->cancelRegistration($registration);
             }
 
             return $this->errorResponse(self::ERROR_TRANSACTION_CANCELLED, 'Transaction cancelled', $payload);
@@ -217,6 +217,38 @@ class ClickPaymentService
         return ClickTransaction::where('merchant_trans_id', $registrationId)
             ->latest()
             ->first();
+    }
+
+    private function cancelRegistration(Registration $registration): void
+    {
+        $registration->loadMissing(['user', 'olympiad']);
+
+        Log::info('Click: cancelling registration', [
+            'registration_id' => $registration->id,
+            'has_user'        => $registration->user !== null,
+            'telegram_id'     => $registration->user?->telegram_id,
+        ]);
+
+        try {
+            $this->notificationService->sendPaymentCancelled($registration);
+        } catch (\Throwable $e) {
+            Log::warning('Click: failed to send cancellation notification', [
+                'registration_id' => $registration->id,
+                'error'           => $e->getMessage(),
+            ]);
+        }
+
+        try {
+            DB::transaction(function () use ($registration) {
+                $registration->ticket()->delete();
+                $registration->delete();
+            });
+        } catch (\Throwable $e) {
+            Log::error('Click: failed to delete cancelled registration', [
+                'registration_id' => $registration->id,
+                'error'           => $e->getMessage(),
+            ]);
+        }
     }
 
     private function verifySignature(array $payload, string $stage): bool
