@@ -99,67 +99,60 @@ class PaymePaymentService
     private function createTransaction(array $params): array
     {
         $paymeId = $params['id'];
-        $time    = (int) $params['time'];
+        $time    = intval($params['time']);
         $amount  = (int) $params['amount'];
 
-        // 🔁 SAME TRANSACTION
         $existing = PaymeTransaction::where('payme_id', $paymeId)->first();
-
-        Log::info('PAYME TIME DEBUG', [
-            'params_time' => $params['time'] ?? null,
-        ]);
 
         if ($existing) {
             return [
-                'create_time' => (int) $existing->create_time,
+                'create_time' => $existing->msTimestamp('create_time'),
                 'transaction' => (string) $existing->id,
                 'state'       => (int) $existing->state,
             ];
         }
 
-        // 🔍 ORDER
         $registration = $this->findRegistration($params);
 
-        if (!$registration) {
-            return ['error' => $this->error(-31050, 'Order not found')];
+        if (! $registration) {
+            return ['error' => $this->error(-31050, 'Order not found', 'user_id')];
         }
 
         $expected = (int) $registration->olympiad->price * 100;
 
         if ($amount !== $expected) {
-            return ['error' => $this->error(-31001, 'Incorrect amount')];
+            return ['error' => $this->error(-31001, 'Incorrect amount', 'amount')];
         }
 
         if ($registration->payment_status === 'paid') {
-            return ['error' => $this->error(-31099, 'Already paid')];
+            return ['error' => $this->error(-31099, 'Already paid', 'user_id')];
         }
 
-        // ❗ ACTIVE TRANSACTION
-        $active = PaymeTransaction::where('state', 1)
+        $active = PaymeTransaction::where('state', PaymeTransaction::STATE_CREATED)
             ->whereHas('payment', fn ($q) => $q->where('registration_id', $registration->id))
             ->first();
 
         if ($active) {
-            return [
-                'error' => $this->error(-31099, 'Other transaction exists')
-            ];
+            return ['error' => $this->error(-31099, 'Other transaction exists', 'user_id')];
         }
 
-        // ✅ CREATE
+        $payment = $this->paymentService->createForRegistration($registration);
+        $this->paymentService->setSystem($registration, 'payme');
+
         $tx = PaymeTransaction::create([
-            'payment_id'  => $this->paymentService->createForRegistration($registration)->id,
+            'payment_id'  => $payment->id,
             'payme_id'    => $paymeId,
-            'state'       => 1,
+            'state'       => PaymeTransaction::STATE_CREATED,
             'amount'      => $amount,
-            'time'        => $time,
-            'create_time' => $time, // ❗ MUHIM
+            'payme_time'  => $time,
+            'create_time' => $time,
             'account'     => $params['account'] ?? [],
         ]);
 
         return [
-            'create_time' => (int) $tx->create_time,
+            'create_time' => $time,
             'transaction' => (string) $tx->id,
-            'state'       => 1,
+            'state'       => PaymeTransaction::STATE_CREATED,
         ];
     }
 
@@ -277,40 +270,40 @@ class PaymePaymentService
     {
         $tx = PaymeTransaction::where('payme_id', $params['id'])->first();
 
-        if (!$tx) {
-            return ['error' => $this->error(-31003, 'Transaction not found')];
+        if (! $tx) {
+            return ['error' => $this->error(-31003, 'Transaction not found', 'transaction')];
         }
 
         return [
-            'create_time'  => (int) $tx->create_time,
-            'perform_time' => $tx->perform_time ? (int) $tx->perform_time : 0,
-            'cancel_time'  => $tx->cancel_time ? (int) $tx->cancel_time : 0,
+            'create_time'  => $tx->msTimestamp('create_time'),
+            'perform_time' => $tx->msTimestamp('perform_time'),
+            'cancel_time'  => $tx->msTimestamp('cancel_time'),
             'transaction'  => (string) $tx->id,
             'state'        => (int) $tx->state,
-            'reason'       => $tx->reason ? (int) $tx->reason : 0,
+            'reason'       => $tx->reason !== null ? (int) $tx->reason : 0,
         ];
     }
 
     private function getStatement(array $params): array
     {
-        $from = (int) ($params['from'] ?? 0);
-        $to = (int) ($params['to'] ?? 0);
+        $from = intval($params['from'] ?? 0);
+        $to   = intval($params['to'] ?? 0);
 
         $transactions = PaymeTransaction::query()
-            ->whereBetween('time', [$from, $to])
-            ->orderBy('time')
+            ->whereBetween('create_time', [$from, $to])
+            ->orderBy('create_time')
             ->get()
             ->map(fn (PaymeTransaction $tx) => [
-                'id' => (string) $tx->payme_id,
-                'time' => (int) $tx->time,
-                'amount' => (int) $tx->amount,
-                'account' => $tx->account ?? new \stdClass(),
-                'create_time' => (int) $tx->create_time,
-                'perform_time' => $tx->perform_time ? (int) $tx->perform_time : 0,
-                'cancel_time' => $tx->cancel_time ? (int) $tx->cancel_time : 0,
-                'transaction' => (string) $tx->id,
-                'state' => (int) $tx->state,
-                'reason' => $tx->reason !== null ? (int) $tx->reason : null,
+                'id'           => (string) $tx->payme_id,
+                'time'         => $tx->msTimestamp('create_time'),
+                'amount'       => (int) $tx->amount,
+                'account'      => $tx->account ?? new \stdClass(),
+                'create_time'  => $tx->msTimestamp('create_time'),
+                'perform_time' => $tx->msTimestamp('perform_time'),
+                'cancel_time'  => $tx->msTimestamp('cancel_time'),
+                'transaction'  => (string) $tx->id,
+                'state'        => (int) $tx->state,
+                'reason'       => $tx->reason !== null ? (int) $tx->reason : 0,
             ])
             ->all();
 
@@ -324,7 +317,7 @@ class PaymePaymentService
     private function createResponse(PaymeTransaction $tx): array
     {
         return [
-            'create_time' => (int) $tx->create_time,
+            'create_time' => $tx->msTimestamp('create_time'),
             'transaction' => (string) $tx->id,
             'state'       => (int) $tx->state,
         ];
@@ -334,7 +327,7 @@ class PaymePaymentService
     {
         return [
             'transaction'  => (string) $tx->id,
-            'perform_time' => $tx->perform_time ? (int) $tx->perform_time : 0,
+            'perform_time' => $tx->msTimestamp('perform_time'),
             'state'        => (int) $tx->state,
         ];
     }
@@ -343,7 +336,7 @@ class PaymePaymentService
     {
         return [
             'transaction' => (string) $tx->id,
-            'cancel_time' => $tx->cancel_time ? (int) $tx->cancel_time : 0,
+            'cancel_time' => $tx->msTimestamp('cancel_time'),
             'state'       => (int) $tx->state,
         ];
     }

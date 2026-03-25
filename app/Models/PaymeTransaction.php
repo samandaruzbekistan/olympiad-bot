@@ -20,23 +20,19 @@ class PaymeTransaction extends Model
         'payme_id',
         'state',
         'amount',
-        'time',
+        'payme_time',
+        'create_time',
         'perform_time',
         'cancel_time',
         'reason',
         'account',
-        'create_time',
     ];
 
     protected $casts = [
-        'amount' => 'decimal:2',
-        'state' => 'integer',
-        'time' => 'integer',
-        'perform_time' => 'integer',
-        'cancel_time' => 'integer',
-        'reason' => 'integer',
+        'amount'  => 'decimal:2',
+        'state'   => 'integer',
+        'reason'  => 'integer',
         'account' => 'array',
-        'create_time' => 'integer',
     ];
 
     public function payment(): BelongsTo
@@ -44,12 +40,19 @@ class PaymeTransaction extends Model
         return $this->belongsTo(Payment::class);
     }
 
+    public function msTimestamp(string $field): int
+    {
+        $val = $this->attributes[$field] ?? 0;
+
+        return $val ? intval($val) : 0;
+    }
+
     public function isExpired(): bool
     {
         $timeout = 43_200_000; // 12 hours in ms
 
         return $this->state === self::STATE_CREATED
-            && (now()->getTimestampMs() - $this->time) > $timeout;
+            && (now()->getTimestampMs() - $this->msTimestamp('payme_time')) > $timeout;
     }
 
     public function isCancelled(): bool
