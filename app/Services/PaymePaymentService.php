@@ -38,7 +38,7 @@ class PaymePaymentService
 
     public function handleRequest(Request $request): array
     {
-        Log::info('Payme request', $request->all());
+        // Log::info('Payme request', $request->all());
 
         $body = $request->all();
         $id = $body['id'] ?? null;
@@ -56,6 +56,7 @@ class PaymePaymentService
             'PerformTransaction'      => $this->performTransaction($params),
             'CancelTransaction'       => $this->cancelTransaction($params),
             'CheckTransaction'        => $this->checkTransaction($params),
+            'GetStatement'            => $this->getStatement($params),
             default                   => ['error' => $this->error(-32601, 'Method not found')],
         };
 
@@ -97,65 +98,69 @@ class PaymePaymentService
 
     private function createTransaction(array $params): array
     {
-        $paymeId = $params['id'] ?? null;
-        $time    = (int) ($params['time'] ?? 0);
-        $amount  = (int) ($params['amount'] ?? 0);
-        $account = $params['account'] ?? [];
+        $paymeId = $params['id'];
+        $time    = (int) $params['time'];
+        $amount  = (int) $params['amount'];
 
-        /* --- Existing transaction with same payme_id ------------------- */
+        // 🔁 SAME TRANSACTION
         $existing = PaymeTransaction::where('payme_id', $paymeId)->first();
 
-        if ($existing !== null) {
-            if ($existing->state !== PaymeTransaction::STATE_CREATED) {
-                return ['error' => $this->error(-31008, 'Unable to complete', 'transaction')];
-            }
-            if ($existing->isExpired()) {
-                $this->cancelTx($existing, 4);
-                return ['error' => $this->error(-31008, 'Transaction expired', 'transaction')];
-            }
-            return $this->createResponse($existing);
+        Log::info('PAYME TIME DEBUG', [
+            'params_time' => $params['time'] ?? null,
+        ]);
+
+        if ($existing) {
+            return [
+                'create_time' => (int) $existing->create_time,
+                'transaction' => (string) $existing->id,
+                'state'       => (int) $existing->state,
+            ];
         }
 
-        /* --- Validate order ------------------------------------------- */
+        // 🔍 ORDER
         $registration = $this->findRegistration($params);
-        if ($registration === null) {
-            return ['error' => $this->error(-31050, 'Order not found', 'user_id')];
+
+        if (!$registration) {
+            return ['error' => $this->error(-31050, 'Order not found')];
         }
 
         $expected = (int) $registration->olympiad->price * 100;
+
         if ($amount !== $expected) {
-            return ['error' => $this->error(-31001, 'Incorrect amount', 'amount')];
+            return ['error' => $this->error(-31001, 'Incorrect amount')];
         }
 
         if ($registration->payment_status === 'paid') {
-            return ['error' => $this->error(-31099, 'Order already paid', 'user_id')];
+            return ['error' => $this->error(-31099, 'Already paid')];
         }
 
-        /* --- Cancel any other pending transaction for this order ------- */
-        $activeTx = PaymeTransaction::where('state', PaymeTransaction::STATE_CREATED)
+        // ❗ ACTIVE TRANSACTION
+        $active = PaymeTransaction::where('state', 1)
             ->whereHas('payment', fn ($q) => $q->where('registration_id', $registration->id))
             ->first();
 
-        if ($activeTx !== null) {
-            $this->cancelTx($activeTx, 4);
+        if ($active) {
+            return [
+                'error' => $this->error(-31099, 'Other transaction exists')
+            ];
         }
 
-        /* --- Create new transaction ----------------------------------- */
-        return DB::transaction(function () use ($registration, $paymeId, $time, $amount, $account) {
-            $payment = $this->paymentService->createForRegistration($registration);
-            $this->paymentService->setSystem($registration, 'payme');
+        // ✅ CREATE
+        $tx = PaymeTransaction::create([
+            'payment_id'  => $this->paymentService->createForRegistration($registration)->id,
+            'payme_id'    => $paymeId,
+            'state'       => 1,
+            'amount'      => $amount,
+            'time'        => $time,
+            'create_time' => $time, // ❗ MUHIM
+            'account'     => $params['account'] ?? [],
+        ]);
 
-            $tx = PaymeTransaction::create([
-                'payment_id' => $payment->id,
-                'payme_id'   => $paymeId,
-                'state'      => PaymeTransaction::STATE_CREATED,
-                'amount'     => $amount,
-                'time'       => $time,
-                'account'    => $account,
-            ]);
-
-            return $this->createResponse($tx);
-        });
+        return [
+            'create_time' => (int) $tx->create_time,
+            'transaction' => (string) $tx->id,
+            'state'       => 1,
+        ];
     }
 
     /* ------------------------------------------------------------------ */
@@ -179,10 +184,10 @@ class PaymePaymentService
             return ['error' => $this->error(-31008, 'Unable to complete', 'transaction')];
         }
 
-        if ($tx->isExpired()) {
-            $this->cancelTx($tx, 4);
-            return ['error' => $this->error(-31008, 'Transaction expired', 'transaction')];
-        }
+        // if ($tx->isExpired()) {
+        //     $this->cancelTx($tx, 4);
+        //     return ['error' => $this->error(-31008, 'Transaction expired', 'transaction')];
+        // }
 
         return DB::transaction(function () use ($tx) {
             $performTime = now()->getTimestampMs();
@@ -270,21 +275,46 @@ class PaymePaymentService
 
     private function checkTransaction(array $params): array
     {
-        $paymeId = $params['id'] ?? null;
-        $tx = PaymeTransaction::where('payme_id', $paymeId)->first();
+        $tx = PaymeTransaction::where('payme_id', $params['id'])->first();
 
-        if ($tx === null) {
-            return ['error' => $this->error(-31003, 'Transaction not found', 'transaction')];
+        if (!$tx) {
+            return ['error' => $this->error(-31003, 'Transaction not found')];
         }
 
         return [
-            'create_time'  => (int) $tx->time,
+            'create_time'  => (int) $tx->create_time,
             'perform_time' => $tx->perform_time ? (int) $tx->perform_time : 0,
             'cancel_time'  => $tx->cancel_time ? (int) $tx->cancel_time : 0,
             'transaction'  => (string) $tx->id,
             'state'        => (int) $tx->state,
-            'reason'       => $tx->reason !== null ? (int) $tx->reason : null,
+            'reason'       => $tx->reason ? (int) $tx->reason : 0,
         ];
+    }
+
+    private function getStatement(array $params): array
+    {
+        $from = (int) ($params['from'] ?? 0);
+        $to = (int) ($params['to'] ?? 0);
+
+        $transactions = PaymeTransaction::query()
+            ->whereBetween('time', [$from, $to])
+            ->orderBy('time')
+            ->get()
+            ->map(fn (PaymeTransaction $tx) => [
+                'id' => (string) $tx->payme_id,
+                'time' => (int) $tx->time,
+                'amount' => (int) $tx->amount,
+                'account' => $tx->account ?? new \stdClass(),
+                'create_time' => (int) $tx->create_time,
+                'perform_time' => $tx->perform_time ? (int) $tx->perform_time : 0,
+                'cancel_time' => $tx->cancel_time ? (int) $tx->cancel_time : 0,
+                'transaction' => (string) $tx->id,
+                'state' => (int) $tx->state,
+                'reason' => $tx->reason !== null ? (int) $tx->reason : null,
+            ])
+            ->all();
+
+        return ['transactions' => $transactions];
     }
 
     /* ================================================================== */
@@ -294,7 +324,7 @@ class PaymePaymentService
     private function createResponse(PaymeTransaction $tx): array
     {
         return [
-            'create_time' => (int) $tx->time,
+            'create_time' => (int) $tx->create_time,
             'transaction' => (string) $tx->id,
             'state'       => (int) $tx->state,
         ];
@@ -357,7 +387,8 @@ class PaymePaymentService
             return false;
         }
 
-        return $parts[0] === 'Paycom' && $parts[1] === config('services.payme.key');
+        return hash_equals((string) config('services.payme.login', 'Paycom'), (string) $parts[0])
+            && hash_equals((string) config('services.payme.key'), (string) $parts[1]);
     }
 
     private function error(int $code, string $message, string $data = ''): array
@@ -369,7 +400,7 @@ class PaymePaymentService
         ];
     }
 
-    private function rpcError(?int $id, int $code, string $message): array
+    private function rpcError(int|string|null $id, int $code, string $message): array
     {
         return [
             'jsonrpc' => '2.0',

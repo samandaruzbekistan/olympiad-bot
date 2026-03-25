@@ -43,6 +43,7 @@ return [
     ],
 
     'payme' => [
+        'login' => env('PAYME_LOGIN', 'Paycom'),
         'merchant_id' => env('PAYME_MERCHANT_ID'),
         'key' => env('PAYME_KEY'),
         'checkout_url' => env('PAYME_CHECKOUT_URL', 'https://checkout.paycom.uz'),

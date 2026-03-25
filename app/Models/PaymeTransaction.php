@@ -25,6 +25,7 @@ class PaymeTransaction extends Model
         'cancel_time',
         'reason',
         'account',
+        'create_time',
     ];
 
     protected $casts = [
@@ -35,6 +36,7 @@ class PaymeTransaction extends Model
         'cancel_time' => 'integer',
         'reason' => 'integer',
         'account' => 'array',
+        'create_time' => 'integer',
     ];
 
     public function payment(): BelongsTo

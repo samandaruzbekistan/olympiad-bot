@@ -249,7 +249,7 @@ class OlympiadHandler
         $this->paymentService->createForRegistration($registration);
 
         $clickUrl = $this->clickPayments->generatePaymentLink($registration);
-        $paymeUrl = $this->paymePayments->generatePaymentLink($registration);
+        $paymeUrl = $this->buildPaymePaymentLink($registration);
 
         $price = number_format((int) $olympiad->price, 0, '.', ' ');
 
@@ -380,5 +380,21 @@ class OlympiadHandler
         $localPath = storage_path('app/public/' . ltrim($path, '/'));
 
         return is_file($localPath) ? $localPath : null;
+    }
+
+    private function buildPaymePaymentLink(Registration $registration): string
+    {
+        if (method_exists($this->paymePayments, 'generatePaymentLink')) {
+            return $this->paymePayments->generatePaymentLink($registration);
+        }
+
+        // Fallback: protect bot flow if old service class is still loaded.
+        $registration->loadMissing('olympiad');
+        $amount = (int) ($registration->olympiad?->price ?? 0) * 100;
+        $merchantId = (string) config('services.payme.merchant_id');
+        $baseUrl = (string) config('services.payme.checkout_url', 'https://checkout.paycom.uz');
+        $params = base64_encode("m={$merchantId};ac.user_id={$registration->id};a={$amount}");
+
+        return rtrim($baseUrl, '/') . '/' . $params;
     }
 }
