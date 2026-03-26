@@ -42,9 +42,7 @@ class PaymeTransaction extends Model
 
     public function msTimestamp(string $field): int
     {
-        $val = $this->attributes[$field] ?? 0;
-
-        return $val ? intval($val) : 0;
+        return intval($this->attributes[$field] ?? 0);
     }
 
     public function isExpired(): bool
