@@ -38,7 +38,7 @@ class PaymePaymentService
 
     public function handleRequest(Request $request): array
     {
-        Log::info('Payme request', $request->all());
+        // Log::info('Payme request', $request->all());
 
         $body = $request->all();
         $id = $body['id'] ?? null;
@@ -407,11 +407,11 @@ class PaymePaymentService
     {
         $registration->loadMissing(['user', 'olympiad']);
 
-        Log::info('Payme: cancelling registration', [
-            'registration_id' => $registration->id,
-            'has_user'        => $registration->user !== null,
-            'telegram_id'     => $registration->user?->telegram_id,
-        ]);
+        // Log::info('Payme: cancelling registration', [
+        //     'registration_id' => $registration->id,
+        //     'has_user'        => $registration->user !== null,
+        //     'telegram_id'     => $registration->user?->telegram_id,
+        // ]);
 
         try {
             $this->notificationService->sendPaymentCancelled($registration);
