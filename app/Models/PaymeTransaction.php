@@ -42,7 +42,21 @@ class PaymeTransaction extends Model
 
     public function msTimestamp(string $field): int
     {
-        return intval($this->attributes[$field] ?? 0);
+        if (! array_key_exists($field, $this->attributes)) {
+            return 0;
+        }
+
+        $raw = $this->attributes[$field];
+
+        if ($raw === null || $raw === '') {
+            return 0;
+        }
+
+        if (is_string($raw) && ctype_digit($raw)) {
+            return (int) $raw;
+        }
+
+        return (int) $raw;
     }
 
     public function isExpired(): bool

@@ -287,25 +287,24 @@ class PaymePaymentService
 
     private function getStatement(array $params): array
     {
-        $from = intval($params['from'] ?? 0);
-        $to   = intval($params['to'] ?? 0);
+        $from = (string) $params['from'];
+        $to   = (string) $params['to'];
 
-        $transactions = PaymeTransaction::query()
-            ->whereBetween('create_time', [$from, $to])
-            ->orderBy('create_time')
+        $transactions = PaymeTransaction::whereBetween('create_time', [$from, $to])
             ->get()
             ->map(fn (PaymeTransaction $tx) => [
-                'id'           => (string) $tx->payme_id,
-                'time'         => (int) $tx->create_time,
-                'amount'       => (int) $tx->amount,
-                'account'      => $tx->account ?? new \stdClass(),
-                'create_time'  => (int) $tx->create_time,
-                'perform_time' => (int) $tx->perform_time,
-                'cancel_time'  => (int) $tx->cancel_time,
-                'transaction'  => (string) $tx->id,
-                'state'        => (int) $tx->state,
-                'reason'       => $tx->reason !== null ? (int) $tx->reason : 0,
+                'id'            => (string) $tx->payme_id,
+                'time'          => $tx->msTimestamp('create_time'),
+                'amount'        => (int) round((float) $tx->amount),
+                'account'       => $tx->account ?? new \stdClass(),
+                'create_time'   => $tx->msTimestamp('create_time'),
+                'perform_time'  => $tx->msTimestamp('perform_time'),
+                'cancel_time'   => $tx->msTimestamp('cancel_time'),
+                'transaction'   => (string) $tx->id,
+                'state'         => (int) $tx->state,
+                'reason'        => $tx->reason !== null ? (int) $tx->reason : 0,
             ])
+            ->values()
             ->all();
 
         return ['transactions' => $transactions];
