@@ -8,12 +8,19 @@ use App\Models\Payment;
 use App\Models\Registration;
 use App\Models\Ticket;
 use App\Models\User;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\View\View;
 
 class DashboardController extends Controller
 {
-    public function __invoke(): View
+    public function __invoke(): View|RedirectResponse
     {
+        $admin = Auth::guard('admin')->user();
+        if ($admin !== null && $admin->role === 'coordinator') {
+            return redirect()->route('admin.coordinator.dashboard');
+        }
+
         $totalUsers = User::count();
         $totalOlympiads = Olympiad::count();
         $totalRegistrations = Registration::count();

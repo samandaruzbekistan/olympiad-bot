@@ -1,7 +1,10 @@
 <?php
 
 use App\Http\Controllers\Admin\AdminAuthController;
+use App\Http\Controllers\Admin\AdminProfileController;
 use App\Http\Controllers\Admin\BroadcastController;
+use App\Http\Controllers\Admin\CoordinatorController;
+use App\Http\Controllers\Admin\CoordinatorManagementController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\OlympiadController;
 use App\Http\Controllers\Admin\OlympiadTypeController;
@@ -29,6 +32,22 @@ Route::prefix('admin')->name('admin.')->group(function () {
 
     Route::middleware('auth:admin')->group(function () {
         Route::get('/', DashboardController::class)->name('dashboard');
+        Route::get('/profile', [AdminProfileController::class, 'edit'])->name('profile.edit');
+        Route::put('/profile', [AdminProfileController::class, 'update'])->name('profile.update');
+
+        Route::get('/coordinator', [CoordinatorController::class, 'dashboard'])->name('coordinator.dashboard');
+        Route::get('/coordinator/olympiads/{olympiad}', [CoordinatorController::class, 'participants'])->name('coordinator.olympiads.participants');
+        Route::get('/coordinator/olympiads/{olympiad}/export', [CoordinatorController::class, 'export'])->name('coordinator.olympiads.export');
+
+        Route::middleware('admin.not_coordinator')->group(function () {
+        Route::middleware('admin.super')->group(function () {
+        Route::get('/coordinators', [CoordinatorManagementController::class, 'index'])->name('coordinators.index');
+        Route::get('/coordinators/create', [CoordinatorManagementController::class, 'create'])->name('coordinators.create');
+        Route::post('/coordinators', [CoordinatorManagementController::class, 'store'])->name('coordinators.store');
+        Route::get('/coordinators/{coordinator}/edit', [CoordinatorManagementController::class, 'edit'])->name('coordinators.edit');
+        Route::put('/coordinators/{coordinator}', [CoordinatorManagementController::class, 'update'])->name('coordinators.update');
+        Route::delete('/coordinators/{coordinator}', [CoordinatorManagementController::class, 'destroy'])->name('coordinators.destroy');
+        });
 
         Route::get('/subjects', [SubjectController::class, 'index'])->name('subjects.index');
         Route::get('/subjects/create', [SubjectController::class, 'create'])->name('subjects.create');
@@ -62,5 +81,6 @@ Route::prefix('admin')->name('admin.')->group(function () {
 
         Route::get('/broadcast', [BroadcastController::class, 'create'])->name('broadcast.create');
         Route::post('/broadcast', [BroadcastController::class, 'send'])->name('broadcast.send');
+        });
     });
 });

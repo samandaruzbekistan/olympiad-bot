@@ -25,6 +25,8 @@
             </div>
             <nav class="flex-1 space-y-0.5 overflow-y-auto px-3 py-4">
                 @php
+                    $admin = auth('admin')->user();
+                    $isCoordinator = $admin && method_exists($admin, 'isCoordinator') && $admin->isCoordinator();
                     $nav = [
                         ['route' => 'admin.dashboard', 'match' => 'admin.dashboard', 'label' => 'Asosiy', 'icon' => 'M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z'],
                         ['route' => 'admin.olympiads.index', 'match' => 'admin.olympiads.*', 'label' => 'Olimpiadalar', 'icon' => 'M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z'],
@@ -37,6 +39,33 @@
                         ['route' => 'admin.statistics.index', 'match' => 'admin.statistics.*', 'label' => 'Statistika', 'icon' => 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z'],
                         ['route' => 'admin.broadcast.create', 'match' => 'admin.broadcast.*', 'label' => 'Xabar yuborish', 'icon' => 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z'],
                     ];
+                    $isSuperAdmin = $admin && $admin->role !== 'coordinator';
+                    if ($isCoordinator) {
+                        $nav = [
+                            ['route' => 'admin.coordinator.dashboard', 'match' => 'admin.coordinator.*', 'label' => 'Koordinator paneli', 'icon' => 'M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z'],
+                            ['route' => 'admin.profile.edit', 'match' => 'admin.profile.*', 'label' => 'Profil', 'icon' => 'M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0z'],
+                        ];
+                    } elseif ($isSuperAdmin) {
+                        array_splice($nav, 1, 0, [[
+                            'route' => 'admin.coordinators.index',
+                            'match' => 'admin.coordinators.*',
+                            'label' => 'Koordinatorlar',
+                            'icon' => 'M17 20h5V4H2v16h5m10 0v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6m10 0H7',
+                        ]]);
+                        $nav[] = [
+                            'route' => 'admin.profile.edit',
+                            'match' => 'admin.profile.*',
+                            'label' => 'Profil',
+                            'icon' => 'M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0z',
+                        ];
+                    } else {
+                        $nav[] = [
+                            'route' => 'admin.profile.edit',
+                            'match' => 'admin.profile.*',
+                            'label' => 'Profil',
+                            'icon' => 'M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0z',
+                        ];
+                    }
                 @endphp
                 @foreach($nav as $item)
                     <a href="{{ route($item['route']) }}" class="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium {{ request()->routeIs($item['match']) ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900' }}">
@@ -60,8 +89,13 @@
             <header class="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-4 border-b border-slate-200 bg-white/95 px-4 shadow-sm backdrop-blur sm:px-6 lg:px-8">
                 <h1 class="text-xl font-semibold text-slate-800">@yield('page-title', 'Boshqaruv')</h1>
                 <div class="ml-auto flex items-center gap-3">
-                    <span class="text-sm text-slate-500">Administrator</span>
-                    <span class="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-100 text-sm font-medium text-indigo-700">A</span>
+                    @php $adminUser = auth('admin')->user(); @endphp
+                    <a href="{{ route('admin.profile.edit') }}" class="text-sm text-indigo-600 hover:text-indigo-800">
+                        {{ $adminUser?->name ?? 'Administrator' }}
+                    </a>
+                    <span class="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-100 text-sm font-medium text-indigo-700">
+                        {{ strtoupper(substr($adminUser?->name ?? 'A', 0, 1)) }}
+                    </span>
                 </div>
             </header>
 
